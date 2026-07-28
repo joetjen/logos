@@ -1,0 +1,164 @@
+; Logos's reader grammar -- an Aether grammar, extending Ichor's own
+; minimal Lisp test fixture grammar (Ichor's `test/lisp/lisp.aether`)
+; with the features a real language needs beyond that fixture: set
+; literals, character literals, ratio literals, var-quote, anonymous-fn
+; sugar, real metadata attachment (`meta_sugar`/`^` is already present in
+; the fixture grammar, but the fixture's own actions don't build real
+; metadata out of it the way `Logos.Reader.Actions` does), and `#_`
+; datum comments.
+;
+; This file is *pure syntax* -- it only says what parses. What each parsed
+; shape turns into is entirely `Logos.Reader.Actions`'s job (pure
+; reification, see that module's docs); nothing here evaluates anything.
+
+@grammar "logos"
+@root form
+@skip TRIVIA
+
+; ---- punctuation tokens ----------------------------------------------------
+
+LPAREN          := "("
+RPAREN          := ")"
+LBRACKET        := "["
+RBRACKET        := "]"
+LBRACE          := "{"
+RBRACE          := "}"
+HASH_LBRACE     := "#{"
+HASH_LPAREN     := "#("
+HASH_UNDERSCORE := "#_"
+HASH_QUOTE      := "#'"
+QUOTE           := "'"
+BACKTICK        := "`"
+TILDE_AT        := "~@"
+TILDE           := "~"
+CARET           := "^"
+
+; ---- numbers ------------------------------------------------------------
+; Ratio form tried first: PEG's ordered choice inside a single token body
+; picks the *first* alternative that succeeds, not the longest overall
+; match (that longest-wins behavior only applies *across* distinct
+; top-level tokens during lexing, via maximal munch) -- so if the plain
+; integer/float alternative were listed first, "3/4" would tokenize as
+; NUMBER "3" and then separately as SYMBOL "/" then NUMBER "4" instead of
+; one ratio NUMBER "3/4", since the first alternative to *succeed at all*
+; wins immediately with no backtracking to try the longer ratio form
+; afterward.
+;
+; NUMBER is declared *before* SYMBOL_START/SYMBOL_CHAR/SYMBOL/KEYWORD
+; below (moved earlier than the base fixture's own declaration order)
+; deliberately: `-` is a valid SYMBOL_START character (it's also the
+; unary-minus/subtraction symbol), so a negative number like `-4`
+; tokenizes as *both* a 2-character SYMBOL and a 2-character NUMBER --
+; an exact-length tie, broken only by declaration order (maximal munch
+; picks the longest match; ties go to whichever token was declared
+; first). Declaring NUMBER first makes negative-number literals actually
+; win that tie; keeping SYMBOL first (as the base fixture's literal text
+; does) would silently turn every negative-number literal into a
+; 2-or-more-character symbol instead.
+
+NUMBER := "-"? DIGIT+ "/" DIGIT+ | "-"? DIGIT+ ("." DIGIT+)?
+
+; ---- symbols / keywords -----------------------------------------------------
+; `/` is deliberately part of both SYMBOL_START and SYMBOL_CHAR -- it is
+; simultaneously an ordinary symbol on its own (the division function)
+; and the ns/name separator inside a longer symbol; see
+; `Logos.Symbol.parse/1`'s doc comment for how the reader actions
+; disambiguate the two after tokenizing. `%`/`&` are added beyond the
+; base fixture's character set so `#(...)` anonymous-fn placeholder
+; symbols (`%`, `%1`, `%&`) and the ordinary `&` rest-arg symbol
+; tokenize as SYMBOL at all.
+
+; `#` is added to SYMBOL_CHAR (but deliberately *not* SYMBOL_START) so
+; auto-gensym syntax (`x#`, `foo-bar#`, used inside syntax-quote to get a
+; fresh unique name -- see `Logos.Reader.Actions`) tokenizes as an
+; ordinary SYMBOL -- trailing/internal only, matching Clojure's own `x#`
+; shape, so a leading `#` still unambiguously starts one of the
+; `#{`/`#(`/`#_`/`#'` reader-macro tokens above rather than colliding
+; with plain symbols.
+
+; `.` is added to SYMBOL_CHAR (but deliberately *not* SYMBOL_START) so
+; dotted namespace symbols (`my-app.core`, `ns.sub/x`) tokenize as one
+; SYMBOL -- this was a real, previously-documented gap (namespace *values*
+; could already contain dots as plain Elixir strings, e.g. "logos.core",
+; but the reader itself could never produce such a symbol from source
+; text, since `.` fell through to no rule at all). Kept out of
+; SYMBOL_START deliberately: a bare `.`/leading-`.` token has no meaning
+; in Logos today (no Clojure-style `.method`/`.-field` interop sugar),
+; so a leading dot stays a hard read error rather than silently becoming
+; a one-character symbol. `NUMBER`'s own decimal point is unaffected --
+; it's declared first and wins any length tie against a would-be SYMBOL
+; per the tie-break above (a leading digit is never in SYMBOL_START, so
+; there is no ambiguity to break in the first place).
+SYMBOL_START := [[:alpha:]_+\-*/<>=!?%&]
+SYMBOL_CHAR  := [[:alnum:]_+\-*/<>=!?%&#.]
+SYMBOL       := SYMBOL_START SYMBOL_CHAR*
+KEYWORD      := ":" SYMBOL
+
+; ---- strings ----------------------------------------------------------------
+; Extended beyond the base fixture's escape-free `"\"" (!"\"" .)* "\""`:
+; a string that can never contain a literal `"` or `\` is unusable for a
+; real language, so this grammar adds backslash-escaping at the *token*
+; level (`("\\" .)` consumes an escaped character -- including an escaped
+; quote -- before the "stop at unescaped quote" alternative gets a
+; chance to end the string early). `Logos.Reader.Actions` decodes the
+; handful of escapes Logos actually supports (`\"` `\\` `\n` `\t` `\r`)
+; out of the raw matched text; see that module for the exact scope
+; decision.
+
+STRING := "\"" (("\\" .) | (!"\"" .))* "\""
+
+; ---- characters ---------------------------------------------------------
+; `\c` (a single char), `\newline` / `\space` / `\tab` (and a few more
+; named chars `Logos.Char` recognizes), `\uHHHH`. The token itself just
+; captures "backslash, then either a run of symbol-ish characters (for
+; the named/`u`-escape forms) or exactly one arbitrary character (for
+; `\(`, `\ `, `\;`, etc. -- anything that isn't itself SYMBOL_CHAR-shaped)";
+; `Logos.Char.parse/1` does the actual named-char/hex/literal
+; disambiguation on the text after the backslash.
+
+CHAR := "\\" (SYMBOL_CHAR+ | .)
+
+; ---- comments / trivia -----------------------------------------------------
+
+COMMENT := ";" (!"\n" .)* "\n"?
+SPACE   := [ \t\n,]+
+TRIVIA  := (SPACE | COMMENT)*
+
+; ---- rules ------------------------------------------------------------------
+
+form := datum_comment | set | anon_fn_sugar | list | vector | map | reader_macro | atom
+
+list   := LPAREN form* RPAREN
+vector := LBRACKET form* RBRACKET
+map    := LBRACE (form form)* RBRACE
+set    := HASH_LBRACE form* RBRACE
+
+; `#(...)` is its own top-level `form` alternative (not folded into
+; `reader_macro`) because, unlike every `reader_macro` alternative, it
+; doesn't wrap exactly one following form -- it's a bracketing form with
+; its own `form*` body and its own closing delimiter, structurally much
+; closer to `list`/`vector`/`set` than to `quote_sugar`'s "one prefix
+; token, one wrapped form" shape.
+anon_fn_sugar := HASH_LPAREN form* RPAREN
+
+; `#_form` -- a datum comment: syntactically consumes exactly one
+; following form (so parsing/token-consumption is correct regardless of
+; what's inside it), but is *not* reified into anything -- see
+; `Logos.Reader.Actions` for the discard mechanism.
+datum_comment := HASH_UNDERSCORE form
+
+reader_macro := quote_sugar
+              | quasiquote_sugar
+              | unquote_splice_sugar
+              | unquote_sugar
+              | var_quote_sugar
+              | meta_sugar
+
+quote_sugar           := QUOTE form
+quasiquote_sugar      := BACKTICK form
+unquote_splice_sugar  := TILDE_AT form
+unquote_sugar         := TILDE form
+var_quote_sugar       := HASH_QUOTE form
+meta_sugar            := CARET meta:form target:form
+
+atom := SYMBOL | KEYWORD | STRING | NUMBER | CHAR
