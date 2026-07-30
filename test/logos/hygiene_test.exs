@@ -1,8 +1,8 @@
 defmodule Logos.HygieneTest do
   use ExUnit.Case, async: true
 
-  # Phase 4: real macro hygiene -- implicit &form/&env, lexical-shadow
-  # tracking in Logos.Macroexpand, and auto-gensym capture avoidance.
+  # Real macro hygiene -- implicit &form/&env, lexical-shadow tracking in
+  # Logos.Macroexpand, and auto-gensym capture avoidance.
 
   defp rt, do: Logos.new_runtime()
 

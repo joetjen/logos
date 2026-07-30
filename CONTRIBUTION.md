@@ -2,7 +2,7 @@
 
 ## Development setup
 
-Requires Elixir `~> 1.17` (see `mix.exs`) and a matching Erlang/OTP.
+Requires Elixir `~> 1.19` (see `mix.exs`) and a matching Erlang/OTP.
 
 ```sh
 git clone <this repo>
@@ -11,12 +11,33 @@ mix deps.get
 mix test
 ```
 
-Logos's reader is built on [Ichor](https://hex.pm/packages/ichor)
-(`{:ichor, "~> 0.1.1"}` in `mix.exs`), fetched from Hex like any other
-dependency -- `mix deps.get` is enough, no sibling checkout required. If
-you're working on Ichor and Logos together, a local `mix.exs` override
-(`{:ichor, path: "../ichor"}`) works the same way it would for any other
-dependency; just don't commit that override.
+Logos's reader is generated ahead of time by
+[Ichor](https://hex.pm/packages/ichor)'s `mix ichor.gen` task, from
+`priv/grammar/logos.aether`, into the checked-in
+`lib/logos/reader/generated.ex` (see `Logos.Reader`'s moduledoc). Both
+Ichor dependencies are ordinary Hex packages:
+
+- `{:ichor, "~> 0.2.1", only: [:dev], runtime: false}` -- the grammar
+  compiler itself, needed only to run `mix ichor.gen`, never at runtime.
+- `{:ichor_runtime, "~> 0.1.0"}` -- the small support library the
+  generated reader actually calls, [independently published and
+  maintained](https://hex.pm/packages/ichor_runtime) (its own repo, own
+  release cadence, not a subdirectory of `ichor`'s).
+
+`mix deps.get` fetches both. If you change `priv/grammar/logos.aether`,
+regenerate the reader:
+
+```sh
+MIX_ENV=dev mix ichor.gen priv/grammar/logos.aether \
+  --module Logos.Reader.Generated \
+  --actions Logos.Reader.Actions \
+  --out lib/logos/reader/generated.ex
+```
+
+If you're working on Ichor and Logos together, a local `mix.exs` override
+on either dep (`path: "../ichor"` / `path: "../ichor_runtime"`) works the
+same way it would for any other dependency; just don't commit that
+override.
 
 ## Architecture, in one paragraph
 
@@ -47,10 +68,24 @@ source of truth.
 ## Running things
 
 ```sh
-mix test                          # full suite (247+ tests)
-mix test --exclude slow           # if you've tagged anything as slow (none are, currently)
+mix precommit                     # the whole gate below, in one command
+```
+
+`mix precommit` (see its alias in `mix.exs`) runs, in fast-to-slow order:
+
+```sh
+mix format                        # Elixir source formatting (writes)
 mix compile --warnings-as-errors  # the compile-cleanliness bar this project holds itself to
-mix format --check-formatted      # Elixir source formatting
+mix credo --strict                # static analysis
+mix sobelow                       # security static analysis
+mix test                          # full suite (248 tests)
+mix dialyzer                      # success-typing analysis (slowest step, especially the first PLT build)
+```
+
+Plus, separately (not part of `mix precommit`, since it's about `.lisp`
+sources, not `.ex`):
+
+```sh
 mix logos.format --check-formatted "lib/**/*.lisp"   # Logos (.lisp) source formatting
 ```
 
@@ -161,9 +196,9 @@ and [guides/language/LOGOS_CHEATSHEET.md](guides/language/LOGOS_CHEATSHEET.md).
 - Keep commits focused; explain *why* in the commit message, not just
   *what*.
 - Add or update tests for any behavior change.
-- Run the full verification set above before opening a PR:
-  `mix test`, `mix compile --warnings-as-errors`,
-  `mix format --check-formatted`, `mix logos.format --check-formatted`.
+- Run the full verification set above before opening a PR: `mix
+  precommit`, plus `mix logos.format --check-formatted` if you touched
+  any `.lisp` source.
 - If you touch `lib/logos/stdlib.lisp`, remember it's dogfooded at
   startup (`Logos.Stdlib.load!/1` actually reads/macroexpands/evaluates
   it) -- a broken macro there fails loudly the next time any test builds

@@ -1,15 +1,11 @@
 defmodule Logos.TcoTest do
   @moduledoc """
-  DESIGN.md section 10's Phase 3 roadmap entry explicitly calls out a "TCO
-  validation test" as its own deliverable, distinct from Phase 2's
-  smaller sanity checks (kept, and re-verified, in `test/logos/eval_test.exs`).
-  DESIGN.md section 0's decision: "validated with a 10M-iteration
-  tail-recursive test as part of Phase 3" -- the real number, run for
-  real, through the full Phase 3 stack: a Logos-level `defn` (which only
-  exists now because `stdlib.lisp`'s `defmacro` bootstrap works), calling
-  itself in tail position, resolved through the real namespace-aware
-  `Logos.Eval.resolve_symbol/3` (not Phase 2's flat env) on every
-  iteration.
+  A dedicated TCO validation test, distinct from the smaller tail-call
+  sanity checks in `test/logos/eval_test.exs`: a real 10,000,000-iteration
+  self-recursive run, through the full stack -- a Logos-level `defn`
+  (which depends on `stdlib.lisp`'s `defmacro` bootstrap), calling itself
+  in tail position, resolved through the real namespace-aware
+  `Logos.Eval.resolve_symbol/3` on every iteration.
 
   If Elixir's tail-call optimization is broken anywhere in the call chain
   `Logos.Eval.eval/3` -> `eval_call/4` -> `apply_fn/3` -> `apply_user_fn/3`

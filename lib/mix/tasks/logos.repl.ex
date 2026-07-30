@@ -1,6 +1,4 @@
 defmodule Mix.Tasks.Logos.Repl do
-  @shortdoc "Starts a local Logos REPL"
-
   @moduledoc """
   Starts a local Logos REPL: a fresh Runtime with `logos.core` and any
   project `.lisp` files preloaded, then a stdin read-eval-print loop
@@ -17,7 +15,7 @@ defmodule Mix.Tasks.Logos.Repl do
   namespace (`user`) -- **not** wrapped in its own `(ns ...)`, since
   real file-based `require` loading doesn't exist yet (`Logos.Primitives`'
   `load_ns!/2` currently only supports requiring a namespace that's
-  already loaded in-memory; see that function's own `TODO` comment). A
+  already loaded in-memory; see that function's own leading comment). A
   project file that wants its own namespace still needs an
   explicit `(ns ...)`/`(in-ns ...)` form of its own at its top, exactly
   as if it had been typed at the REPL. A preload file that fails to parse
@@ -32,6 +30,8 @@ defmodule Mix.Tasks.Logos.Repl do
   """
 
   use Mix.Task
+
+  @shortdoc "Starts a local Logos REPL"
 
   @impl Mix.Task
   def run(_argv) do

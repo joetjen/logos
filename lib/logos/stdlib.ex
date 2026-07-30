@@ -17,11 +17,11 @@ defmodule Logos.Stdlib do
   would.
   """
 
+  alias Logos.{Env, Eval, Macroexpand, Namespace, Reader, Runtime}
+
   @stdlib_path Path.join(__DIR__, "stdlib.lisp")
   @external_resource @stdlib_path
   @stdlib_source File.read!(@stdlib_path)
-
-  alias Logos.{Env, Eval, Macroexpand, Namespace, Reader, Runtime}
 
   @doc "The raw `stdlib.lisp` source text, embedded at compile time."
   @spec source() :: String.t()

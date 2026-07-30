@@ -1,10 +1,12 @@
 # Logos
 
 Logos is a Clojure-flavored Lisp, embeddable in Elixir/BEAM applications.
-Source text is parsed by [Ichor](https://hex.pm/packages/ichor) -- a
-grammar-compiler library, also on Hex -- via an Aether grammar
-(`priv/grammar/logos.aether`) compiled through Ichor's PEG engine, then
-macroexpanded and evaluated by a small tree-walking interpreter with
+Source text is parsed via an Aether grammar (`priv/grammar/logos.aether`),
+compiled ahead of time through [Ichor](https://hex.pm/packages/ichor)'s
+PEG engine (`mix ichor.gen`, checked in as `lib/logos/reader/generated.ex`)
+rather than at every compile -- Logos only depends on Ichor's small
+`ichor_runtime` package at runtime, not the grammar compiler itself. The
+result is macroexpanded and evaluated by a small tree-walking interpreter with
 genuine tail-call optimization -- a self-recursive Logos function loops
 forever without growing the Elixir call stack (validated by a real
 10,000,000-iteration test).
@@ -129,15 +131,16 @@ lexical continuity across every form and returns the last value.
 
 ```sh
 mix deps.get
-mix test
-mix format --check-formatted
-mix compile --warnings-as-errors
-mix docs
+mix precommit
 ```
+
+`mix precommit` runs the whole gate in one shot -- `format`, `compile
+--warnings-as-errors`, `credo --strict`, `sobelow`, `test`, `dialyzer` --
+the same checks CI (if any) would run, in fast-to-slow order.
 
 See [CONTRIBUTION.md](CONTRIBUTION.md) for how to propose changes, and
 [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## License
 
-MIT -- see [LICENSE.txt](LICENSE.txt).
+MIT -- see [LICENSE](LICENSE).

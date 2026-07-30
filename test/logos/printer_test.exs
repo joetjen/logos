@@ -4,8 +4,8 @@ defmodule Logos.PrinterTest do
   alias Logos.{Atom, Char, Fn, Keyword, Pid, Printer, Ratio, Reader, Symbol, Vector}
 
   # Print `value`, read the printed text back, and assert the result is
-  # `==` to `value` -- the round-trip proof DESIGN.md's Printer decision
-  # calls for, for every reader-producible type.
+  # `==` to `value` -- the round-trip proof `Logos.Printer`'s own
+  # moduledoc calls for, for every reader-producible type.
   defp assert_round_trip(value) do
     printed = Printer.print(value)
     assert {:ok, read_back} = Reader.read(printed)

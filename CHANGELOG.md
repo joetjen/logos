@@ -90,11 +90,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   interop sugar today, so a leading dot is still a hard read error
   rather than silently becoming a one-character symbol).
 
-- **Ichor dependency switched from a local path dependency to the
-  published Hex package** (`{:ichor, "~> 0.1.1"}`), now that Ichor itself
-  is published on [Hex](https://hex.pm/packages/ichor). No source changes
-  were needed beyond the dependency declaration -- `use Ichor`'s public
-  contract didn't move between the pre-release checkout and 0.1.1.
+- **Ichor dependency switched from a local path dependency to Hex, then
+  from `use Ichor` to `mix ichor.gen`, splitting the dependency into
+  `ichor` (dev-only) + `ichor_runtime` (runtime)**, following the same
+  split upstream in Ichor itself. Both are now ordinary Hex packages --
+  `{:ichor, "~> 0.2.1", only: [:dev], runtime: false}` and
+  `{:ichor_runtime, "~> 0.1.0"}`, the latter
+  [independently published](https://hex.pm/packages/ichor_runtime) (its
+  own repo, not a subdirectory of `ichor`'s). `lib/logos/reader/generated.ex`
+  is `mix ichor.gen`'s checked-in output for `priv/grammar/logos.aether`
+  -- `Logos.Reader` now delegates `run_sequence/2`/`tokenize/1` to it
+  instead of having Ichor's native codegen splice
+  `parse/1`/`tokenize/1`/`run/1,2`/`run_sequence/2` directly into
+  `Logos.Reader` at every compile. Regenerate it (command in
+  `mix.exs`'s `deps/0`) whenever `priv/grammar/logos.aether` changes.
+  The practical win: `ichor` (the Aether front-end, `Grammar.Analysis`,
+  the LR/GLR table builder, both codegen backends) is `only: [:dev],
+  runtime: false` and never ships, including in a `mix release` build --
+  only `ichor_runtime` (`Ichor.Actions`, `Ichor.Error`,
+  `Ichor.Toolkit.Result`, the compiled tokenizer/parser combinators) is
+  an ordinary runtime dependency, exactly the handful of support modules
+  the generated reader actually calls.
 - Removed every internal citation of `DESIGN.md` (a former internal design
   document, never published, now deleted) and of its numbered `Phase N`
   rollout plan from module docs and comments across the codebase. Every
@@ -111,9 +127,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   REPL/`mix logos.run` syntax error in the source being read, as opposed
   to an evaluation error). Both now call `Ichor.Error.format/1`, the
   function Ichor itself uses internally to render this same struct.
-- `Logos.Process`'s docs referenced `Process.spawn_link/1` and
-  `Process.spawn_monitor/1` -- neither exists in Elixir/Erlang (verified
-  directly: `function_exported?(Process, :spawn_link, 1)` and the
+- `Logos.Process`'s docs referenced `Process.spawn_link` and
+  `Process.spawn_monitor` (both arity 1) -- neither exists in
+  Elixir/Erlang (verified directly:
+  `function_exported?(Process, :spawn_link, 1)` and the
   `:spawn_monitor` equivalent are both `false`). The real functions are
   `Kernel.spawn_link/1`/`Kernel.spawn_monitor/1`, which is what
   `Logos.Process.spawn_link/2`/`spawn_monitor/2` were already correctly

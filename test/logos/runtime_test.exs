@@ -13,7 +13,7 @@ defmodule Logos.RuntimeTest do
     assert Namespace.get_var_value(rt2, "user", "only-in-rt1") == :error
   end
 
-  test "new/1 starts in namespace user, per DESIGN.md section 5" do
+  test "new/1 starts in namespace user" do
     rt = Runtime.new()
     assert Runtime.current_ns(rt) == "user"
   end

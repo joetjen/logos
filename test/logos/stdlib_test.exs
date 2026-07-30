@@ -108,8 +108,8 @@ defmodule Logos.StdlibTest do
       assert {:ok, false, _} = run("(or)")
     end
 
-    # Phase 4: and/or were rewritten (via real syntax-quote + auto-gensym)
-    # to real Clojure "last value" semantics -- see stdlib.lisp's moduledoc.
+    # and/or use real Clojure "last value" semantics (via real syntax-quote
+    # + auto-gensym) -- see stdlib.lisp's moduledoc.
     test "and returns the last value, not a boolean, when all forms are truthy" do
       assert {:ok, 2, _} = run("(and 1 2)")
       assert {:ok, 3, _} = run("(and 1 2 3)")

@@ -1,8 +1,8 @@
 defmodule Logos.SyntaxQuoteTest do
   use ExUnit.Case, async: true
 
-  # Phase 4: real syntax-quote desugaring (`lib/logos/reader/actions.ex`).
-  # These tests read+macroexpand+eval real source through the whole
+  # Real syntax-quote desugaring (`lib/logos/reader/actions.ex`). These
+  # tests read+macroexpand+eval real source through the whole
   # pipeline, against a real `Logos.Runtime` (so auto-qualification has a
   # "current namespace" to qualify against) -- exercising the reader's
   # desugaring, not just its output shape.

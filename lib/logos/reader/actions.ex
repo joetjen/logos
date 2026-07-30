@@ -86,9 +86,9 @@ defmodule Logos.Reader.Actions do
       meaning once collections grow metadata support.
   """
 
-  @behaviour Ichor.Actions
-
   alias Logos.{Char, Keyword, Ratio, Symbol, Vector}
+
+  @behaviour Ichor.Actions
 
   @discard {:__logos_discard__}
 

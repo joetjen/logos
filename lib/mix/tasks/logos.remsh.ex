@@ -1,6 +1,4 @@
 defmodule Mix.Tasks.Logos.Remsh do
-  @shortdoc "Attaches a REPL to a running, distributed Logos node"
-
   @moduledoc """
   Attaches an interactive REPL to a running, distributed Logos node,
   mirroring `iex --remsh`. The target host application must already be
@@ -59,6 +57,8 @@ defmodule Mix.Tasks.Logos.Remsh do
 
   use Mix.Task
 
+  @shortdoc "Attaches a REPL to a running, distributed Logos node"
+
   @impl Mix.Task
   def run(argv) do
     Mix.Task.run("app.start")
@@ -116,7 +116,12 @@ defmodule Mix.Tasks.Logos.Remsh do
   end
 
   defp start_distribution!(opts) do
-    case Node.start(opts.self_name, opts.kind) do
+    # `Node.start/2`'s current (Elixir 1.19+) contract takes a keyword list
+    # (`name_domain: :shortnames | :longnames`), not a bare atom -- the old
+    # `Node.start(name, :shortnames | :longnames)` two-atom form still works
+    # at runtime (kept for backwards compatibility) but isn't covered by the
+    # published `@spec` any more, so Dialyzer can't see it as a valid call.
+    case Node.start(opts.self_name, name_domain: opts.kind) do
       {:ok, _pid} ->
         Node.set_cookie(opts.cookie)
         :ok

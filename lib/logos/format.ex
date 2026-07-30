@@ -13,9 +13,9 @@ defmodule Logos.Format do
   away entirely (per that module's own moduledoc, it produces plain
   `Logos.Form.t()` data, nothing about source position or trivia
   survives). Reusing that pipeline for a formatter would silently delete
-  every comment in the source. `Logos.Reader.tokenize/1` (spliced into
-  `Logos.Reader` by `use Ichor`, see `Grammar.Native.generate/2`)
-  instead returns the complete,
+  every comment in the source. `Logos.Reader.tokenize/1` (a thin
+  delegate to `mix ichor.gen`'s checked-in generated module -- see
+  `Logos.Reader`'s own moduledoc) instead returns the complete,
   position-preserving `[%Grammar.VM.Token{name, text, line, column}]`
   stream for the *whole* input -- including `:TRIVIA` tokens (the
   grammar's `@skip` token, `(SPACE | COMMENT)*`), which is where every

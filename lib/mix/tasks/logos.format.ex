@@ -1,6 +1,4 @@
 defmodule Mix.Tasks.Logos.Format do
-  @shortdoc "Formats Logos source files"
-
   @moduledoc """
   Formats Logos source files, or checks that they're already formatted.
   Built on `Logos.Format`, which formats from Ichor's raw token stream
@@ -32,6 +30,8 @@ defmodule Mix.Tasks.Logos.Format do
   """
 
   use Mix.Task
+
+  @shortdoc "Formats Logos source files"
 
   @impl Mix.Task
   def run(argv) do

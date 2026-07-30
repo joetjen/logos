@@ -1,7 +1,7 @@
 defmodule Logos.ProcessTest do
   @moduledoc """
-  Phase 5: `Logos.Process` (the DESIGN.md section 7 primitive family) --
-  real multi-process scenarios, not single-process pantomimes. Every test
+  `Logos.Process`'s concurrency primitive family -- real multi-process
+  scenarios, not single-process pantomimes. Every test
   here spawns a genuine BEAM process via the Logos-level `spawn`/
   `spawn-link`/`spawn-monitor` primitives and proves cross-process
   behavior (a real message arriving, a real link/monitor firing) by

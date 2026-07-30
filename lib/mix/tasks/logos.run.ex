@@ -1,6 +1,4 @@
 defmodule Mix.Tasks.Logos.Run do
-  @shortdoc "Runs a Logos script or inline expression"
-
   @moduledoc """
   Runs a Logos script file or an inline expression: builds a fresh
   Runtime, evaluates the source as a top-level form sequence, and exits
@@ -22,6 +20,8 @@ defmodule Mix.Tasks.Logos.Run do
   use Mix.Task
 
   alias Logos.Runtime
+
+  @shortdoc "Runs a Logos script or inline expression"
 
   @impl Mix.Task
   def run(argv) do

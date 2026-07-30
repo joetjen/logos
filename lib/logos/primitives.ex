@@ -494,10 +494,9 @@ defmodule Logos.Primitives do
       case Logos.Runtime.start_loading!(runtime, ns_name) do
         :ok ->
           try do
-            # TODO: read `ns_name`'s `.lisp` file off disk (dot-to-slash,
-            # dash-to-underscore convention) and evaluate it here. For
-            # now, a namespace that doesn't already exist in-memory is a
-            # clear error rather than a silent no-op.
+            # Not yet implemented (see this function's leading comment):
+            # a namespace that doesn't already exist in-memory is a clear
+            # error rather than a silent no-op.
             {:error, {:namespace_not_loaded, ns_name}}
           after
             Logos.Runtime.finish_loading!(runtime, ns_name)
