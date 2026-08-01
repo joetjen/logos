@@ -262,8 +262,37 @@ defmodule Logos.Reader.Actions do
       end
 
     params = if rest?, do: params ++ [Symbol.new("%&")], else: params
-    [Symbol.new("fn"), Vector.new(params) | body]
+    body = substitute_percent(body)
+    # `body` (the forms captured between `#(` and `)`) is spliced in as
+    # ONE nested list, not flattened into the outer `fn` form: `body`
+    # (e.g. `[+, %1, 1]` for `#(+ % 1)`) is itself already a valid Logos
+    # list-form -- a single element here, not `| body`, which would
+    # instead splice its own elements directly into the outer list
+    # (`(fn [%1] + %1 1)`, three separate body forms returning only the
+    # last) rather than nesting them as the one intended call `(+ %1 1)`.
+    [Symbol.new("fn"), Vector.new(params), body]
   end
+
+  # Rewrites every bare `%` placeholder to `%1` throughout `body` --
+  # mirrors `scan_placeholders/2`'s structural recursion, but maps instead
+  # of accumulating. Without this, a bare `%` synthesizes the `%1` param
+  # above but the body still references the literal, never-bound symbol
+  # `%`, leaving it unbound at call time.
+  defp substitute_percent(%Symbol{ns: nil, name: "%"}), do: Symbol.new("%1")
+  defp substitute_percent(%Symbol{} = sym), do: sym
+  defp substitute_percent(list) when is_list(list), do: Enum.map(list, &substitute_percent/1)
+
+  defp substitute_percent(%Vector{} = vec),
+    do: vec |> Vector.to_list() |> substitute_percent() |> Vector.new()
+
+  defp substitute_percent(%MapSet{} = set),
+    do: set |> MapSet.to_list() |> substitute_percent() |> MapSet.new()
+
+  defp substitute_percent(%{} = map) when not is_struct(map) do
+    Map.new(map, fn {k, v} -> {substitute_percent(k), substitute_percent(v)} end)
+  end
+
+  defp substitute_percent(other), do: other
 
   defp scan_placeholders(%Symbol{ns: nil, name: "%"}, {max, rest?}), do: {max(max, 1), rest?}
   defp scan_placeholders(%Symbol{ns: nil, name: "%&"}, {max, _rest?}), do: {max, true}
@@ -378,10 +407,23 @@ defmodule Logos.Reader.Actions do
   #     real Clojure's own actual behavior (this is *why* real Clojure
   #     macros use `x#` for any name a template itself binds, e.g. in a
   #     syntax-quoted `fn`/`let`'s own parameter list -- see
-  #     `stdlib.lisp`'s rewritten macros, none of which write a bare
+  #     `core.logos`'s rewritten macros, none of which write a bare
   #     unquoted symbol in a binding position for exactly this reason).
 
-  @special_form_names ~w(quote cond do def fn try quasiquote unquote unquote-splice var with-meta)
+  # `catch`/`finally` are `try`'s own clause-introducer symbols (see
+  # `Logos.Eval.eval_try/3`'s private `try_clause?/1`, which recognizes
+  # them structurally by bare, unqualified name -- `ns: nil`). Omitting
+  # them here was a real, previously-undiscovered gap: a syntax-quoted
+  # `(catch tag evar handler...)` inside a macro's own template would
+  # auto-qualify `catch` to e.g. `some-ns/catch` (it isn't a real Var
+  # anywhere, so resolution fails and it falls back to qualifying against
+  # the defining namespace), and a qualified symbol never satisfies
+  # `try_clause?/1`'s `ns: nil` check -- the whole clause silently stops
+  # being recognized as a catch at all, becoming dead body code instead,
+  # and the exception it was meant to catch propagates uncaught.
+  @special_form_names ~w(
+    quote cond do def fn try catch finally quasiquote unquote unquote-splice var with-meta
+  )
 
   @doc """
   Finds and desugars every `{:logos_qq, _}` syntax-quote sentinel
@@ -543,7 +585,7 @@ defmodule Logos.Reader.Actions do
         # own namespace -- qualifying it to `user/let` would be simply
         # wrong, there is no such Var). When `name` doesn't resolve to
         # anything *yet* (e.g. a macro's own syntax-quoted self-reference
-        # to its own not-yet-fully-defined name, like `stdlib.lisp`'s
+        # to its own not-yet-fully-defined name, like `core.logos`'s
         # `and`/`or`), fall back to qualifying against the current
         # namespace -- a deliberate approximation, matching the reasonable
         # assumption that an unresolvable bare name is a forward/self
@@ -603,8 +645,22 @@ defmodule Logos.Reader.Actions do
 
   # ---- number parsing -----------------------------------------------------
 
+  # `M`-suffix text (with or without an exponent) is handed straight to
+  # `Logos.Decimal.new/1` unchanged -- confirmed empirically that
+  # `Decimal.new/1` already accepts exponent notation with or without a
+  # decimal point (`Decimal.new("1e5")`, `Decimal.new("1.5E-3")` both
+  # work). The plain (non-`M`) branch needs an extra step: Elixir's
+  # `String.to_float/1` *requires* a literal `.` in its input --
+  # `String.to_float("1e5")` raises, `String.to_float("1.0e5")` doesn't --
+  # but Clojure (and this grammar, see `priv/grammar/logos.aether`'s
+  # `NUMBER` rule) reads a bare `1e5` as a float with no `.` required. So
+  # an exponent with no `.` gets one inserted right before the `e`/`E`
+  # first.
   defp parse_number(text) do
     cond do
+      String.ends_with?(text, "M") ->
+        Logos.Decimal.new(String.slice(text, 0..-2//1))
+
       String.contains?(text, "/") ->
         [num_text, den_text] = String.split(text, "/", parts: 2)
         Ratio.new(String.to_integer(num_text), String.to_integer(den_text))
@@ -612,10 +668,18 @@ defmodule Logos.Reader.Actions do
       String.contains?(text, ".") ->
         String.to_float(text)
 
+      exponent?(text) ->
+        text |> insert_decimal_point_before_exponent() |> String.to_float()
+
       true ->
         String.to_integer(text)
     end
   end
+
+  defp exponent?(text), do: text =~ ~r/[eE]/
+
+  defp insert_decimal_point_before_exponent(text),
+    do: Regex.replace(~r/([eE])/, text, ".0\\1", global: false)
 
   # ---- string escape decoding ----------------------------------------------
 

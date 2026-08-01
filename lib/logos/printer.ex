@@ -7,7 +7,7 @@ defmodule Logos.Printer do
   that requirement -- they print informatively but have no reader syntax
   to read back into.
 
-  Every `Logos.Form.t()` case (the 13-case table in `lib/logos/form.ex`)
+  Every `Logos.Form.t()` case (the 14-case table in `lib/logos/form.ex`)
   prints in a shape `Logos.Reader.read/1` can read back to an `==`-equal
   value -- see `test/logos/printer_test.exs` for the actual round-trip
   proofs, one per reader-producible type, including nested/empty
@@ -16,18 +16,16 @@ defmodule Logos.Printer do
   instead, deliberately *not* readable back (there is no reader syntax
   for any of them -- see `Logos.Form.t()`'s own moduledoc).
 
-  ## Known gap: very large/small floats
+  ## Arbitrary-magnitude floats
 
   `Float.to_string/1` (the base of this module's float printing) falls
   back to scientific notation (`"1.0e11"`) once the exponent gets large
-  enough -- and `NUMBER`'s grammar (`priv/grammar/logos.aether`) has no
-  exponent syntax at all, so such a printed float would *not* actually
-  read back. Not fixed here (round-tripping arbitrary-magnitude floats
-  through a grammar with no scientific-notation support would require a
-  grammar change) -- flagged as a known limitation; every float this
-  module's own round-trip tests print stays well inside
-  the range where `Float.to_string/1` never switches to scientific
-  notation.
+  enough, and `NUMBER`'s grammar (`priv/grammar/logos.aether`) reads that
+  notation back (`("e" | "E") ("+" | "-")? DIGIT+`), so a very
+  large/small float round-trips like everything else -- confirmed via
+  `test/logos/printer_test.exs`'s own round-trip proof for `1.0e300` and
+  `1.0e-300`, not just floats that happen to stay inside
+  `Float.to_string/1`'s plain-decimal range.
   """
 
   alias Logos.{Atom, Char, Fn, Keyword, Pid, Ratio, Symbol, Vector}
@@ -40,6 +38,11 @@ defmodule Logos.Printer do
   def print(n) when is_integer(n), do: Integer.to_string(n)
   def print(n) when is_float(n), do: Float.to_string(n)
   def print(%Ratio{} = r), do: Ratio.to_string(r)
+  # `%Decimal{}` deliberately not aliased (`decimal` the hex package
+  # already exports a bare `Decimal` module of its own) -- see
+  # `Logos.Decimal`'s own moduledoc for why every reference stays fully
+  # qualified.
+  def print(%Decimal{} = d), do: Logos.Decimal.to_string(d)
   def print(s) when is_binary(s), do: print_string(s)
   def print(%Char{} = c), do: Char.to_string(c)
   def print(%Symbol{} = sym), do: Symbol.to_string(sym)

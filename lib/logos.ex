@@ -10,13 +10,13 @@ defmodule Logos do
   visibility comes entirely from `runtime`.
 
   `new_runtime/1` is a one-call convenience: a fresh `Logos.Runtime.new/1`
-  with `Logos.Stdlib.load!/1` (real `stdlib.lisp` dogfooding) already
+  with `Logos.Stdlib.load!/1` (real `priv/stdlib/*.logos` dogfooding) already
   applied, ready to `eval_string` against.
   """
 
   alias Logos.{Env, Eval, Macroexpand, Reader, Runtime, Stdlib}
 
-  @doc "A fresh `Logos.Runtime`, bootstrapped with the Elixir-implemented primitives and `stdlib.lisp` (the Lisp-level standard library built on top of those primitives) already loaded into `logos.core`, starting in namespace `user`."
+  @doc "A fresh `Logos.Runtime`, bootstrapped with the Elixir-implemented primitives and `priv/stdlib/*.logos` (the Lisp-level standard library built on top of those primitives) already loaded into `logos.core`, starting in namespace `user`."
   @spec new_runtime(keyword()) :: Runtime.t()
   def new_runtime(opts \\ []) do
     opts

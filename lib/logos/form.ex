@@ -3,7 +3,7 @@ defmodule Logos.Form do
   The reader/macro-level data type: what `Logos.Reader.read/1` and
   `Logos.Macroexpand` produce and consume.
 
-  The full runtime value type has 16 cases: the 13 listed in `t/0` below,
+  The full runtime value type has 17 cases: the 14 listed in `t/0` below,
   plus `fn`/`atom`/`pid`, which are runtime-only values that evaluation
   produces and the reader can never read back out of source text (see
   `Logos.Printer`'s moduledoc: those three print in an informative,
@@ -17,8 +17,8 @@ defmodule Logos.Form do
   """
 
   @typedoc """
-  nil, boolean, symbol, keyword, integer, float, ratio, string,
-  character, list, vector, map, or set -- the 13 syntactic cases a reader
+  nil, boolean, symbol, keyword, integer, float, ratio, decimal, string,
+  character, list, vector, map, or set -- the 14 syntactic cases a reader
   can actually produce. `fn`/`atom`/`pid` (runtime-only values) and
   `Logos.Var`/`Logos.Namespace` (runtime-only entities) are excluded.
   """
@@ -30,6 +30,7 @@ defmodule Logos.Form do
           | integer()
           | float()
           | Logos.Ratio.t()
+          | Logos.Decimal.t()
           | String.t()
           | Logos.Char.t()
           | [t()]

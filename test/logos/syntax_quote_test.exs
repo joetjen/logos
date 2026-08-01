@@ -118,11 +118,11 @@ defmodule Logos.SyntaxQuoteTest do
       assert {:ok, %Symbol{ns: "user", name: "foo"}} = read_eval("`foo", runtime)
     end
 
-    test "special forms (quote cond do def fn try) are never auto-qualified" do
+    test "special forms (quote cond do def fn try catch finally) are never auto-qualified" do
       runtime = rt()
 
-      {:ok, [q, cond_s, do_s, def_s, fn_s, try_s]} =
-        read_eval("`(quote cond do def fn try)", runtime)
+      {:ok, [q, cond_s, do_s, def_s, fn_s, try_s, catch_s, finally_s]} =
+        read_eval("`(quote cond do def fn try catch finally)", runtime)
 
       assert %Symbol{ns: nil, name: "quote"} = q
       assert %Symbol{ns: nil, name: "cond"} = cond_s
@@ -130,6 +130,26 @@ defmodule Logos.SyntaxQuoteTest do
       assert %Symbol{ns: nil, name: "def"} = def_s
       assert %Symbol{ns: nil, name: "fn"} = fn_s
       assert %Symbol{ns: nil, name: "try"} = try_s
+      assert %Symbol{ns: nil, name: "catch"} = catch_s
+      assert %Symbol{ns: nil, name: "finally"} = finally_s
+    end
+
+    test "a syntax-quoted (catch ...) clause inside a macro's own template actually catches, end to end" do
+      # Regression test: `catch`/`finally` were missing from
+      # `@special_form_names` -- a syntax-quoted `catch` auto-qualified
+      # to e.g. `user/catch` (not a real Var, so it falls back to
+      # qualifying against the current namespace), and a QUALIFIED
+      # symbol never satisfies `Logos.Eval`'s `try_clause?/1` (`ns: nil`
+      # only) -- the whole clause silently stopped being recognized as a
+      # catch at all and became dead body code instead, so the exception
+      # it was meant to catch propagated uncaught.
+      source = """
+      (defmacro syntax-quote-test-catches [tag form]
+        `(try ~form (catch ~tag v# v#)))
+      (syntax-quote-test-catches :boom (throw :boom "caught"))
+      """
+
+      assert {:ok, "caught", _} = Logos.eval_string_sequence(source)
     end
 
     test "an already-qualified symbol is left completely untouched" do
@@ -144,7 +164,7 @@ defmodule Logos.SyntaxQuoteTest do
 
     test "qualification happens against whatever namespace is current, e.g. logos.core during stdlib load" do
       runtime = rt()
-      # `if` is a real stdlib.lisp macro, defined (and read) while the
+      # `if` is a real core.logos macro, defined (and read) while the
       # current namespace was `logos.core` -- its own body syntax-quotes
       # `cond` (a special form, excluded) but if it referenced another
       # ordinary logos.core helper bare, that reference would qualify to

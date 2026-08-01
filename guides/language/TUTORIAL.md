@@ -125,13 +125,14 @@ with a 10,000,000-iteration test.
 explicit `(throw ...)` is catchable this way -- some primitive-level
 failures (like division by zero) surface as an `{:error, _}` at the host
 boundary instead of something a Logos-level `try` can intercept; see
-[LOGOS.md](LOGOS.md#errors) for the distinction.
+[LOGOS.md](LOGOS.md#10-errors) for the distinction.
 
 ## 7. The stdlib macros: `if`/`let`/`when`/`unless`/`and`/`or`/`defn`
 
 Everything past this point is *not* a special form -- it's an ordinary
-macro, written in Logos itself, in `lib/logos/stdlib.lisp`, and loaded
-into every runtime via `Logos.new_runtime/1`.
+macro, written in Logos itself, in `priv/stdlib/core.logos` (the
+`logos.core` namespace), and loaded into every runtime via
+`Logos.new_runtime/1`.
 
 ```clojure
 (if (> 3 2) :yes :no)
@@ -158,6 +159,21 @@ into every runtime via `Logos.new_runtime/1`.
 evaluator code path. `and`/`or` short-circuit and evaluate each argument
 at most once, using a hygienically gensym'd temporary internally so your
 own code's use of a similarly-named variable is never captured.
+
+`defn` (and `defmacro`) accept an optional leading docstring:
+
+```clojure
+(defn add
+  "Adds two numbers."
+  [a b]
+  (+ a b))
+
+(doc add)
+;;=> "Adds two numbers."
+```
+
+`defn-` is `defn` plus `^:private` on the resulting Var (excluded from
+`require`/`use :refer`, still reachable by a qualified reference).
 
 ## 8. Namespaces
 
@@ -188,30 +204,42 @@ meaning to Logos itself; it's just part of the string), and `require`/
 ;;=> my.app
 ```
 
-See [LOGOS.md](LOGOS.md#namespaces) for the full namespace reference and
-[CONTRIBUTION.md](../../CONTRIBUTION.md) for the project's honest list of
-current gaps.
+`ns` is sugar over `in-ns` plus one `require`/`use` call per clause:
+
+```clojure
+(ns my.app
+  (:require other-ns)
+  (:use [another-ns :refer [a b]]))
+```
+
+`require`/`use` (and therefore `ns`) resolve a namespace already loaded
+into the same `Runtime` first; otherwise they fall back to real
+file-based loading off disk, against however the embedding host
+configured that `Runtime`'s `:load_paths` -- see
+[LOGOS.md](LOGOS.md#5-namespaces-and-vars) for the full namespace
+reference and [CONTRIBUTING.md](../../CONTRIBUTING.md) for the project's
+honest list of current gaps.
 
 ## 9. `defmacro` and syntax-quote
 
-`defmacro` itself is not a special form -- it's bootstrapped from two
-ordinary lines at the very top of `stdlib.lisp`:
+`defmacro` itself is not a special form -- it's bootstrapped at the very
+top of `priv/stdlib/core.logos`, conceptually equivalent to:
 
 ```clojure
-(def defmacro
+(def ^:macro defmacro
   (fn [name params & body]
-    (list 'do
-      (list 'def name (cons 'fn (cons params body)))
-      (list 'set-macro! (list 'quote name) true))))
-
-(set-macro! 'defmacro true)
+    (list 'def (with-meta name {:macro true}) (cons 'fn (cons params body)))))
 ```
 
-`defmacro` is just `def` plus flagging the resulting Var as a macro
-(`set-macro!`) -- a macro *is* an ordinary function value, distinguished
-only by a `:macro true` flag on its Var's metadata. Once `defmacro` exists,
-you can write your own macros, and from here on you'll almost always want
-syntax-quote instead of hand-building `list`/`cons` calls:
+`defmacro` is just `def` plus flagging the resulting Var as a macro (via
+`^:macro`/`with-meta`, or the `set-macro!` primitive directly) -- a macro
+*is* an ordinary function value, distinguished only by a `:macro true`
+flag on its Var's metadata. The real bootstrap is a little more involved
+than this, since `defmacro` itself also accepts an optional leading
+docstring (`(defmacro name "doc" [params] body...)`, same as `defn`) --
+see `priv/stdlib/core.logos` for the exact version. Once `defmacro`
+exists, you can write your own macros, and from here on you'll almost
+always want syntax-quote instead of hand-building `list`/`cons` calls:
 
 ```clojure
 (defmacro my-if [test then else]
@@ -246,7 +274,7 @@ you write anything nontrivial:
   variable of the same name:
 
   ```clojure
-  ;; from stdlib.lisp:
+  ;; from priv/stdlib/core.logos:
   (defmacro and [& forms]
     (cond
       (= forms ()) true
@@ -254,7 +282,72 @@ you write anything nontrivial:
       true `(let [g# ~(first forms)] (cond g# (and ~@(rest forms)) true g#))))
   ```
 
-## 10. Concurrency: `spawn`/`send`/`receive`/`atom`
+## 10. Sequences and maps: `map`/`filter`/`reduce`, `get`/`assoc`
+
+`logos.seq` (referred into `logos.core`, so no prefix needed) has the
+usual list-walking functions -- list-only, and `nil`/`()` both count as
+empty:
+
+```clojure
+(map #(+ % 1) (list 1 2 3))
+;;=> (2 3 4)
+
+(filter #(> % 2) (list 1 2 3 4 5))
+;;=> (3 4 5)
+
+(reduce + (list 1 2 3 4 5))
+;;=> 15
+
+(reduce + 100 (list 1 2 3))
+;;=> 106
+
+(take 2 (list 1 2 3 4))
+;;=> (1 2)
+
+(drop 2 (list 1 2 3 4))
+;;=> (3 4)
+
+(count (list 1 2 3))
+;;=> 3
+```
+
+`into` pours a source collection into a target, the target's own shape
+deciding how:
+
+```clojure
+(into [] (list 1 2 3))
+;;=> [1 2 3]
+
+(into #{} (list 1 2 2 3))
+;;=> #{1 2 3}
+```
+
+Maps support `get`/`assoc`/`dissoc`, plus Clojure-style keyword-as-function
+lookup:
+
+```clojure
+(def m {:a 1 :b 2})
+
+(get m :a)
+;;=> 1
+
+(get m :missing :default)
+;;=> :default
+
+(:a m)
+;;=> 1
+
+(assoc m :c 3)
+;;=> {:a 1 :b 2 :c 3}
+
+(dissoc m :a)
+;;=> {:b 2}
+```
+
+`get`/`assoc`/`dissoc` and `(:key map)` are scoped to maps (and `nil`) --
+not sets.
+
+## 11. Concurrency: `spawn`/`send`/`receive`/`atom`
 
 Every process here is a genuine BEAM process -- no simulation layer.
 
@@ -283,7 +376,7 @@ built entirely on `spawn`/`send`/`receive` -- a small self-recursive Lisp
 loop process holds the state, exactly the canonical Erlang
 "process holding state" pattern, not a special runtime type.
 
-## 11. Putting it together: a tiny worked program
+## 12. Putting it together: a tiny worked program
 
 A self-recursive counter, driven entirely through message passing --
 demonstrates `defn`, tail recursion, `spawn`, `receive`/`after`, and

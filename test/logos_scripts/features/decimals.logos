@@ -1,0 +1,66 @@
+;; Feature test: `M`-suffixed decimal literals -- exact-scale arithmetic
+;; (unlike float, which can't represent 0.1 exactly, and unlike ratio,
+;; which always reduces and so loses the original scale), plus the
+;; numeric-tower contagion rules mixing decimal with integer/ratio/float.
+
+(require '[logos.test :refer [:all]])
+(deftest decimal-literals-and-types
+  (do
+    (assert (decimal? 1M))
+    (assert (decimal? 10.99M))
+    (assert= (decimal? 1) false)
+    (assert (number? 1M))
+    (assert= (type-of 1M) :decimal)))
+(deftest decimal-plus-integer-promotes
+  (do
+    (assert= (+ 1M 2) 3M)
+    (assert= (+ 2 1M) 3M)))
+(deftest decimal-plus-decimal-is-exact
+  (assert= (* 1.5M 2M) 3.0M))
+(deftest decimal-plus-ratio-promotes-to-decimal
+  (do
+    (assert= (+ 1M 1/2) 1.5M)
+    (assert= (+ 1/2 1M) 1.5M)))
+(deftest decimal-plus-float-poisons-to-float
+  (do
+    (assert= (+ 1M 1.0) 2.0)
+    (assert= (+ 1.0 1M) 2.0)))
+(deftest decimal-division
+  ;; Division by zero (int or decimal `0`) is a primitive-level
+  ;; `{:error, :division_by_zero}`, not a Logos `throw` -- not
+  ;; expressible as an assert-throws case from Logos code itself (see
+  ;; LOGOS.md's "Important distinction" note in the throw/catch/finally
+  ;; section); covered instead at the ExUnit level in eval_test.exs.
+  (assert= (/ 10M 4) 2.5M))
+(deftest decimal-comparison-is-value-based
+  (do
+    (assert= (< 1.1M 1.10M) false)
+    (assert (<= 1.1M 1.10M))
+    (assert (< 1M 2M))))
+(deftest decimal-equality-is-scale-sensitive
+  ;; Matches real Clojure/Java BigDecimal.equals: 1.10M and 1.1M are the
+  ;; SAME number but NOT `=`, since = compares exact representation, not
+  ;; just numeric value -- <=/>= are the value-based comparison instead.
+  (do
+    (assert= (= 1.10M 1.1M) false)
+    (assert (= 1.1M 1.1M))))
+(deftest ratio-plus-float-no-longer-crashes
+  ;; Regression: `Logos.Ratio`'s own arithmetic had no clause for a
+  ;; ratio mixed with a float before this pass -- `(+ 1/3 1.5)` crashed.
+  ;; Fixed alongside decimal's own "float poisons everything" rule.
+  (assert= (+ 1/3 1.5) (+ (/ 1.0 3) 1.5)))
+(deftest decimal-exponent-literals
+  ;; Same `=` (exact-representation) vs `<=`/`>=` (value-based)
+  ;; distinction as decimal-equality-is-scale-sensitive above:
+  ;; 1.5e10M and 15000000000M are the *same number* but were read from
+  ;; different text, so only <=/>= (Decimal.compare/2, value-based) sees
+  ;; them as equal -- 1e2M and 1e2M (the same literal, twice) are the one
+  ;; case `=` agrees on here.
+  (do
+    (assert (decimal? 1.5e10M))
+    (assert= (type-of 1.5e10M) :decimal)
+    (assert (= 1e2M 1e2M))
+    (assert (<= 1.5e10M 15000000000M))
+    (assert (>= 15000000000M 1.5e10M))
+    (assert= (+ 1e2M 1) 101M)))
+(run-tests)

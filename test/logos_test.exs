@@ -5,7 +5,7 @@ defmodule LogosTest do
     assert {:ok, 3, _env} = Logos.eval_string("(+ 1 2)")
   end
 
-  test "new_runtime/0 boots a Runtime already in namespace user with stdlib.lisp loaded" do
+  test "new_runtime/0 boots a Runtime already in namespace user with priv/stdlib/*.logos loaded" do
     runtime = Logos.new_runtime()
     assert Logos.Runtime.current_ns(runtime) == "user"
     assert Logos.Namespace.exists?(runtime, "logos.core")

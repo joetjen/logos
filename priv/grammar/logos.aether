@@ -56,7 +56,20 @@ CARET           := "^"
 ; does) would silently turn every negative-number literal into a
 ; 2-or-more-character symbol instead.
 
-NUMBER := "-"? DIGIT+ "/" DIGIT+ | "-"? DIGIT+ ("." DIGIT+)?
+; A trailing "M" (Clojure's own decimal-literal suffix, e.g. `10.99M`,
+; `3M`) and an exponent (`1.5e10`, `1e-3`, matching Clojure's own reader
+; grammar) both only ever apply to the plain int/float alternative --
+; there is no `M`-suffixed or exponent-form *ratio* literal in Clojure
+; either. The exponent group's sign is optional-and-either (`+`/`-`, not
+; minus-only): real Clojure accepts both, and `Decimal.to_string/1`'s
+; own default `:scientific` format prints a leading `+` for a positive
+; exponent (e.g. `"1.5E+10"`), so accepting `+` here isn't just source
+; ergonomics -- a decimal value with a large-magnitude exponent can't
+; otherwise round-trip through the printer at all. `1.5e10M` (exponent
+; *and* `M`) is therefore supported too, same as Clojure's own grammar.
+
+NUMBER := "-"? DIGIT+ "/" DIGIT+
+        | "-"? DIGIT+ ("." DIGIT+)? (("e" | "E") ("+" | "-")? DIGIT+)? "M"?
 
 ; ---- symbols / keywords -----------------------------------------------------
 ; `/` is deliberately part of both SYMBOL_START and SYMBOL_CHAR -- it is

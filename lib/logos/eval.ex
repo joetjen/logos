@@ -169,6 +169,16 @@ defmodule Logos.Eval do
           Namespace.has_var?(runtime, "logos.core", name) ->
         {:ok, {"logos.core", name}}
 
+      # `logos.core` itself refers `logos.seq`/`logos.map`/
+      # `logos.concurrency` (see `Logos.Stdlib`'s moduledoc) -- a name not
+      # directly interned in `logos.core` but reachable through *its*
+      # refers table (one level, not a recursive namespace walk) still
+      # counts as part of `logos.core`'s public surface for every
+      # auto-refer-core namespace.
+      Namespace.auto_refer_core?(runtime, current) and
+          match?({:ok, _}, Namespace.get_refer(runtime, "logos.core", name)) ->
+        Namespace.get_refer(runtime, "logos.core", name)
+
       true ->
         :error
     end
@@ -265,15 +275,27 @@ defmodule Logos.Eval do
 
   # Builds the Var metadata map from the symbol's own reader metadata plus
   # the optional docstring. `sym_meta`'s keys are interned `Logos.Keyword`
-  # structs (however the reader's `^meta sym` sugar attached them), not
-  # plain atoms/strings, so `Keyword.intern/1` is needed to build a key
-  # that actually matches a `^:private` flag.
+  # structs (however the reader's `^meta sym` sugar -- or the `with-meta`
+  # primitive, for a symbol built as macro-generated data -- attached
+  # them), not plain atoms/strings, so `Keyword.intern/1` is needed to
+  # build a key that actually matches a `^:private`/`^:macro` flag.
+  # Deliberately checks a fixed, known set of flags (`:private`, `:macro`)
+  # rather than converting every `sym_meta` key to an atom generically --
+  # `String.to_atom/1` on arbitrary caller-supplied keyword names would be
+  # an unbounded atom-table growth vector in a language explicitly meant
+  # to sandbox untrusted-ish scripts (see README's "Why embed a Lisp"
+  # section).
   defp meta_from_symbol(%Symbol{meta: sym_meta}, doc) do
     base = if doc, do: %{doc: doc}, else: %{}
-    priv_kw = Keyword.intern("private")
+    base = put_meta_flag(base, sym_meta, "private", :private)
+    put_meta_flag(base, sym_meta, "macro", :macro)
+  end
 
-    if truthy_flag(Map.get(sym_meta, priv_kw, false)) do
-      Map.put(base, :private, true)
+  defp put_meta_flag(base, sym_meta, kw_name, atom_key) do
+    kw = Keyword.intern(kw_name)
+
+    if truthy_flag(Map.get(sym_meta, kw, false)) do
+      Map.put(base, atom_key, true)
     else
       base
     end
@@ -405,6 +427,19 @@ defmodule Logos.Eval do
 
   def apply_fn({:primitive, name}, arg_values, runtime),
     do: Logos.Primitives.apply(name, arg_values, runtime)
+
+  # Keyword-as-function (`(:key m)` / `(:key m default)`), matching real
+  # Clojure keyword `IFn` behavior -- delegates to the `get` primitive
+  # (`logos.map`). Deliberately scoped to a map or `nil` argument only
+  # (not sets -- unlike Clojure, which also supports `(:x #{...})`
+  # membership-as-lookup -- not part of the documented gap this closes).
+  def apply_fn(%Keyword{} = kw, [coll], runtime)
+      when is_nil(coll) or (is_map(coll) and not is_struct(coll)),
+      do: Logos.Primitives.apply("get", [coll, kw], runtime)
+
+  def apply_fn(%Keyword{} = kw, [coll, default], runtime)
+      when is_nil(coll) or (is_map(coll) and not is_struct(coll)),
+      do: Logos.Primitives.apply("get", [coll, kw, default], runtime)
 
   def apply_fn({:host_fn, mod, fun}, arg_values, _runtime) do
     {:ok, Kernel.apply(mod, fun, arg_values)}

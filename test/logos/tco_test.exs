@@ -3,7 +3,7 @@ defmodule Logos.TcoTest do
   A dedicated TCO validation test, distinct from the smaller tail-call
   sanity checks in `test/logos/eval_test.exs`: a real 10,000,000-iteration
   self-recursive run, through the full stack -- a Logos-level `defn`
-  (which depends on `stdlib.lisp`'s `defmacro` bootstrap), calling itself
+  (which depends on `core.logos`'s `defmacro` bootstrap), calling itself
   in tail position, resolved through the real namespace-aware
   `Logos.Eval.resolve_symbol/3` on every iteration.
 

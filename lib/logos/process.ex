@@ -24,7 +24,7 @@ defmodule Logos.Process do
   here is plain Elixir, called from `Logos.Primitives`' `(args, runtime)`
   dispatch against already-evaluated argument values -- none of them need
   macro-hood. (The one related piece that *does* need macro-hood is the
-  Lisp-level `receive` macro in `stdlib.lisp`, since its clauses must
+  Lisp-level `receive` macro in `concurrency.logos`, since its clauses must
   stay unevaluated until a match is found.)
 
   ## `spawn` -- what actually runs
@@ -66,7 +66,7 @@ defmodule Logos.Process do
   A `send` message can carry *any* `Logos.Value.t()` -- the full set of
   runtime values, which is broader than what the reader can produce from
   source text (`Logos.Form.t()`) -- including a live `%Logos.Fn{}`
-  closure or a `%Logos.Pid{}`/`%Logos.Atom{}`. `stdlib.lisp`'s `swap!`
+  closure or a `%Logos.Pid{}`/`%Logos.Atom{}`. `concurrency.logos`'s `swap!`
   relies on exactly this: it sends its update function as part of the
   message to an atom's owning loop process, which then applies that
   function locally. This module just does a real Erlang `send/2`;

@@ -1,0 +1,160 @@
+;; priv/stdlib/test.logos
+;;
+;; `logos.test` -- a small unit-testing library: `deftest`, `assert`,
+;; `assert=`, `assert-throws`, `run-tests`. Deliberately NOT referred
+;; into `logos.core` (unlike `logos.seq`/`logos.map`/`logos.concurrency`)
+;; -- testing macros/functions have no business being unqualified-visible
+;; in every embedding's production namespaces. Loaded into every
+;; `Logos.Runtime` regardless (see `Logos.Stdlib`), same as the other
+;; three stdlib files, but only reachable once required explicitly, with
+;; `:refer [:all]` (this project's own spelling for "refer everything" --
+;; see `Logos.Primitives`'s `apply_spec_opts/4`; note the vector, unlike
+;; real Clojure's bare `:refer :all`):
+;;
+;;   (require '[logos.test :refer [:all]])
+;;
+;; `:refer [:all]`, not a selective `:refer [name...]` -- every public
+;; var below calls at least one other public var here (`run-tests` calls
+;; `run-one-test`, `deftest`'s expansion references `test-registry`,
+;; ...), and those internal calls resolve against whatever namespace
+;; *calls* them (not `logos.test` itself -- see `core.logos`'s header
+;; comment on why Logos has no notion of "a closure's defining
+;; namespace" for bare-symbol resolution). A selective refer that leaves
+;; out one of these would silently break the ones it did pull in as soon
+;; as they're actually called.
+;;
+;; ## Process-isolated tests
+;;
+;; Each test runs in its own `spawn-monitor`ed BEAM process -- real
+;; process isolation, not a simulated `try`/`catch` sandbox. This matters
+;; because Logos's `try`/`catch` only ever catches an explicit
+;; `(throw ...)` (see `Logos.Eval`'s moduledoc) -- an ordinary evaluation
+;; error (an unbound symbol, a wrong arity, ...) is NOT a `throw` and
+;; cannot be `catch`-ed from Logos code at all; it just propagates as an
+;; `{:error, _}` up through the whole calling chain. Without process
+;; isolation, one genuinely broken test (as opposed to a *failed*
+;; assertion) would abort the entire `run-tests` call rather than being
+;; reported as one failure among many. A test that finishes without
+;; throwing exits `:normal`; `run-tests` treats anything else -- an
+;; uncaught `:assertion-failed` from `assert`/`assert=`/`assert-throws`,
+;; or a genuine bug -- as a failure, indistinguishable from each other
+;; beyond the raw crash reason. No `try`/`catch` needed inside a test
+;; body at all.
+;;
+;; `use` here pulls `logos.concurrency` in directly (rather than relying
+;; on the global refer-into-core step, which hasn't run yet while this
+;; file is still loading -- `logos.test` is the last file `Logos.Stdlib`
+;; loads) so `receive`/`spawn-monitor` below can macroexpand/resolve
+;; correctly (`logos.concurrency` has already fully loaded by this point,
+;; being earlier in `Logos.Stdlib`'s file list, so this is never a
+;; circular- or not-yet-loaded-namespace situation).
+
+(use 'logos.concurrency)
+;; `test-registry` is a plain re-`def`'d Var, NOT an atom, even though an
+;; atom would be the obvious first reach for "mutable shared state."
+;; Registering tests is always sequential (single-threaded script/REPL
+;; evaluation defining one `deftest` after another) -- there's no
+;; concurrent-write race an atom's process-serialized mutation would
+;; actually be buying here. More importantly, an atom actually WOULD be
+;; broken if used here: `atom`'s own definition spawns a backing process
+;; running `atom-loop`, and a freshly spawned process's current namespace
+;; falls back to the Runtime-wide *shared default* (always `"user"`, set
+;; once at `Logos.Runtime.new/1` time and never touched by
+;; `set_current_ns!/2` again -- see that module's moduledoc), never to
+;; whatever namespace the *spawning* process happens to be in. Calling
+;; `atom` here -- while `logos.test` is still loading, before the global
+;; refer-into-core step has run -- would spawn a process that can't
+;; resolve its own `atom-loop` from `user` yet, crashing immediately. Any
+;; primitive that spawns a process is unsafe to call at stdlib-load time
+;; for this same reason; only safe once `Logos.Stdlib.load!/1` has fully
+;; returned.
+
+(def test-registry
+  "Every `deftest`-registered test, as a list of `(name test-fn)` pairs,
+  most recently registered first. Re-`deftest`ing the same `name` adds a
+  second entry rather than replacing the first -- both run."
+  ())
+;; `register-test!` exists so `deftest` itself can use syntax-quote
+;; safely -- see the note above `assert`/`assert=`/`assert-throws` for
+;; why a syntax-quoted cross-file reference here would be unsafe; the
+;; same reasoning applies to `test-registry` (defined in this same file,
+;; but AFTER this point in the source, so a syntax-quoted reference to it
+;; from `deftest` would also auto-qualify before this `def` has run --
+;; harmlessly, since the read-time fallback for an unresolvable name is
+;; the current namespace, i.e. `logos.test`, which happens to be correct
+;; here, but `swap!`-equivalent mutation logic living in an ordinary,
+;; non-syntax-quoted function body is the robust fix either way). Uses
+;; `intern-var!`'s qualified form (explicitly targeting
+;; `logos.test/test-registry`) rather than a bare re-`def`, since this
+;; function runs with whatever namespace *called* `deftest` as its
+;; current namespace, not `logos.test` -- a bare `(def test-registry
+;; ...)` here would define a NEW var in the caller's own namespace
+;; instead of mutating the shared one.
+
+(defn register-test!
+  "Registers `name`/`test-fn` into `test-registry` -- the actual
+  mutation `deftest`'s expansion calls."
+  [name test-fn]
+  (intern-var! 'logos.test/test-registry (cons (list name test-fn) test-registry)))
+(defmacro deftest
+  "Registers a named test. `body` runs as an ordinary zero-arg thunk;
+  `run-tests` isolates it in its own process, so a failure here never
+  affects any other test."
+  [name & body]
+  `(register-test! (quote ~name) (fn [] ~@body)))
+(defmacro assert
+  "Throws :assertion-failed (carrying the unevaluated form and the value
+  it actually produced) if `form` evaluates to anything falsy; otherwise
+  returns that (truthy) value."
+  [form]
+  `(let [v# ~form]
+    (if v# v# (throw :assertion-failed (list :form (quote ~form) :value v#)))))
+(defmacro assert=
+  "Throws :assertion-failed (carrying both sides, unevaluated, plus their
+  actual values) unless `(= actual expected)`; otherwise returns
+  `actual`."
+  [actual expected]
+  `(let [a# ~actual e# ~expected]
+    (if (= a# e#)
+      a#
+      (throw :assertion-failed
+        (list
+          :expected (quote ~expected) :expected-value e#
+          :actual (quote ~actual) :actual-value a#)))))
+(defmacro assert-throws
+  "Runs `form`, throwing :assertion-failed unless it throws `tag`.
+  Returns the value `form` threw on success."
+  [tag form]
+  `(try
+    (do ~form (throw :assertion-failed (list :expected-throw ~tag :form (quote ~form))))
+    (catch ~tag v# v#)))
+(defn run-one-test
+  "Spawns `test-fn` (registered under `name`) in its own monitored
+  process and blocks for its result: `(:pass name)` if it exits
+  normally, `(:fail name reason)` for any other exit reason. Uses
+  `normal-exit?`, not `(= reason :normal)` -- a `:DOWN` reason is a raw
+  Elixir term (the bare atom `:normal` on a clean exit), not a value
+  Logos source can construct or `=`-compare against directly."
+  [name test-fn]
+  (let [spawned (spawn-monitor test-fn)
+      pid (first spawned)]
+    (receive [msg]
+      ((and (= (first msg) :DOWN) (= (first (rest (rest (rest msg)))) pid))
+        (let [reason (first (rest (rest (rest (rest msg)))))]
+          (if (normal-exit? reason) (list :pass name) (list :fail name reason)))))))
+(defn run-tests
+  "Runs every `deftest`-registered test (in registration order), each
+  isolated in its own process, and returns a summary map: `{:total n
+  :passed n :failed (list of (name reason) pairs)}`. Built with `assoc`,
+  not a `{...}` map literal -- unlike Clojure, a Logos map literal's
+  elements are never evaluated (self-evaluating, element-wise, like every
+  other collection literal -- see `Logos.Eval`'s moduledoc), so
+  `{:total (count results)}` would embed the literal, unevaluated form
+  `(count results)` as the value rather than actually calling `count`."
+  []
+  (let [entries (reverse test-registry)
+      results (map (fn [entry] (run-one-test (first entry) (first (rest entry)))) entries)
+      failed (filter (fn [r] (= (first r) :fail)) results)
+      passed-count (count (filter (fn [r] (= (first r) :pass)) results))
+      failed-summary (map (fn [r] (list (first (rest r)) (first (rest (rest r))))) failed)]
+    (assoc {} :total (count results) :passed passed-count :failed failed-summary)))

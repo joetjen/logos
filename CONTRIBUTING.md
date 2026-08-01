@@ -39,6 +39,10 @@ on either dep (`path: "../ichor"` / `path: "../ichor_runtime"`) works the
 same way it would for any other dependency; just don't commit that
 override.
 
+The other runtime dependency, `{:decimal, "~> 2.0"}`, backs decimal
+literals (`10.99M`, see `Logos.Decimal`) -- an ordinary Hex package,
+zero further dependencies of its own, no special setup.
+
 ## Architecture, in one paragraph
 
 Logos is three fully separate passes over increasingly-evaluated data:
@@ -49,8 +53,9 @@ the **reader** (`priv/grammar/logos.aether`, an Aether grammar, plus
 running entirely before evaluation starts) which feeds **eval**
 (`Logos.Eval`, a tree-walking evaluator implementing exactly six special
 forms -- `quote`/`cond`/`do`/`def`/`fn`/`try` -- with everything else,
-including `if`/`let`/`defmacro`/`receive`, an ordinary macro defined in
-`lib/logos/stdlib.lisp`). `Logos.Runtime`/`Logos.Namespace`/`Logos.Var`
+including `if`/`let`/`defmacro`/`receive`, an ordinary macro defined
+across the four `priv/stdlib/*.logos` files (`Logos.Stdlib`'s moduledoc
+has the exact namespace-per-file breakdown). `Logos.Runtime`/`Logos.Namespace`/`Logos.Var`
 sit underneath all three: a per-embedding-instance, ETS-backed namespace
 registry, never a global singleton. If you're orienting yourself in the
 codebase for the first time, read the moduledocs in roughly that order --
@@ -78,15 +83,15 @@ mix format                        # Elixir source formatting (writes)
 mix compile --warnings-as-errors  # the compile-cleanliness bar this project holds itself to
 mix credo --strict                # static analysis
 mix sobelow                       # security static analysis
-mix test                          # full suite (248 tests)
+mix test                          # full suite (280 tests)
 mix dialyzer                      # success-typing analysis (slowest step, especially the first PLT build)
 ```
 
-Plus, separately (not part of `mix precommit`, since it's about `.lisp`
+Plus, separately (not part of `mix precommit`, since it's about `.logos`
 sources, not `.ex`):
 
 ```sh
-mix logos.format --check-formatted "lib/**/*.lisp"   # Logos (.lisp) source formatting
+mix logos.format --check-formatted "priv/stdlib/*.logos"   # Logos (.logos) source formatting
 ```
 
 **The TCO test is slow by design.** `test/logos/tco_test.exs` runs a real
@@ -102,7 +107,7 @@ make the suite faster.
 
 - Elixir source: `mix format` (see `.formatter.exs`); CI-equivalent check
   is `mix format --check-formatted`.
-- Logos (`.lisp`) source: `mix logos.format` -- 2-space indent, one space
+- Logos (`.logos`) source: `mix logos.format` -- 2-space indent, one space
   between siblings, no space before a closing paren, body forms
   (`defn`/`fn`/`let`/`cond`/`try`/...) indented 2 spaces from the opening
   form rather than aligned to the first argument. Deliberately the
@@ -118,78 +123,44 @@ make the suite faster.
   comment explaining *why*, not just *what* -- future contributors
   shouldn't have to rediscover a bug that already got fixed once. Look at
   any existing module (`Logos.Eval`, `Logos.Macroexpand`,
-  `lib/logos/stdlib.lisp`) for the level of detail this project holds
+  `priv/stdlib/core.logos`) for the level of detail this project holds
   itself to.
+- Logos-level (`.logos`) functions/macros need a docstring too, exactly
+  like an Elixir `@doc` -- either `def`'s own optional 3-arg form
+  (`(def name "doc" value)`) or `defn`/`defmacro`/`defn-`'s equivalent
+  optional-docstring argument (`(defn name "doc" [params] body...)`),
+  readable back via `(doc name)`. Attach `^:private`/`^:macro` metadata
+  (reader sugar on a literal symbol, or the `with-meta` primitive for a
+  symbol built as macro-generated data) rather than a separate
+  `set-macro!` call where it's a `def`-time property of the var being
+  created -- see `core.logos`'s header comment for the one real
+  constraint this has (never mark a helper in `logos.seq`/`logos.map`/
+  `logos.concurrency` `^:private` if a public function/macro in the same
+  file calls it; it would silently break that public function/macro
+  outside its own defining namespace -- Logos has no notion of "a
+  closure's defining namespace" for bare-symbol resolution).
 
-## Known gaps (honest list, as of this documentation pass)
+## Known gaps (honest list)
 
-Discovered while writing the language documentation and verifying every
-code example against the real implementation -- not blocking, but real,
-and worth knowing before you rely on any of these or attempt to fix one:
+Gaps formerly listed here -- `#(...)` sugar splicing instead of nesting
+its body, missing `ns`/`doc`/`defn-`, no seq-processing functions, no
+map `get`/`assoc`/`dissoc`/keyword-as-function, ratio arithmetic/
+comparison bugs, `macro?`'s refer-chain blind spot, no `into`, no
+general type predicates, no real file-based namespace/require loading,
+no exponent number syntax -- are fixed; see CHANGELOG.md. No known
+functional gaps remain as of this pass; if you find one, add it here
+along with the fix, or open an issue.
 
-- **`#(...)` anonymous-fn sugar is broken beyond a single, trivial
-  numbered-placeholder body.** `Logos.Reader.Actions`'s private
-  `desugar_anon_fn/1` splices the forms captured between `#(` and `)`
-  directly as the
-  function's *body forms* rather than re-wrapping them into one call --
-  `#(+ %1 %2)` desugars to `(fn [%1 %2] + %1 %2)` (three sequential body
-  forms, returning only the last, `%2`) instead of the intended
-  `(fn [%1 %2] (+ %1 %2))`. A bare `%` placeholder additionally fails
-  outright (the parameter synthesizes as `%1` but the body keeps the
-  literal symbol `%`, which is then unbound). Fix would live in
-  `desugar_anon_fn/1`: wrap `body` in one list rather than splicing it.
-- **No `ns`, `doc`, or `defn-` macros.** All three were part of the
-  original stdlib plan but never landed in `lib/logos/stdlib.lisp`. Use
-  `in-ns` plus individual `require`/`use` calls instead of `ns`; read
-  `Logos.Var.meta/2`'s `:doc` key directly instead of `doc`; write
-  `(def ^:private name (fn ...))` by hand instead of `defn-`.
-- **No sequence-processing stdlib functions** (`map`, `filter`, `reduce`,
-  `take`, `drop`, `reverse`, `count`, `empty?`, `into`). Also planned,
-  never implemented. `first`/`rest`/`cons` plus your own recursive
-  helpers are what's available today -- see
-  [guides/language/LOGOS_EXAMPLES.md](guides/language/LOGOS_EXAMPLES.md)
-  for worked examples.
-- **No map `get`/`assoc`/`dissoc`, no keyword-as-function lookup.** A
-  `{...}` map literal can be built and printed, but there is currently no
-  primitive to pull a value back out of one by key.
-- **No arithmetic primitive accepts an *existing* `Logos.Ratio` operand.**
-  `Logos.Primitives`'s `numeric_reduce/3` calls Erlang's native `+`/`*`
-  directly, which raises `ArithmeticError` on a `%Logos.Ratio{}` operand.
-  `divide/2` (backing `/`) has the same gap from the other direction: its
-  guards are `is_integer/1`/`is_number/1`, neither of which matches an
-  already-constructed `%Logos.Ratio{}`, so `(/ (/ 1 3) 2)` errors with
-  `{:not_a_number, _}` instead of reducing to `1/6` -- only a fresh
-  integer/integer division actually produces a ratio. Fix would live in
-  `divide/2` (accept a `%Logos.Ratio{}` operand and cross-multiply) and
-  `numeric_reduce/3`'s `fun` argument (a ratio-aware `+`/`*` instead of
-  the raw Erlang operators).
-- **`<`/`>`/`<=`/`>=` on `Logos.Ratio` values compare struct fields, not
-  fraction magnitude, and can return a wrong answer.** `(< 1/3 1/2)`
-  returns `false` because `Logos.Primitives`'s `chained?/2` falls back to
-  plain Elixir term ordering (`<`/`>`/etc. on the `%Logos.Ratio{}` struct
-  itself, comparing `den` then `num`), which has no notion of what
-  fraction each ratio actually represents. `=` is unaffected -- two
-  ratios of equal value are always the same reduced `num`/`den` pair
-  (`Logos.Ratio.new/2` always reduces to lowest terms), so struct
-  equality happens to agree with numeric equality. Fix would need
-  `chained?/2` (or a ratio-specific comparator) to cross-multiply
-  `num1 * den2` vs. `num2 * den1` rather than comparing the structs
-  directly.
-- **`macro?` only checks the current namespace's own vars, not the refer
-  chain.** `(macro? 'let)` returns `false` even though `let` genuinely is
-  a macro (reached via the implicit `logos.core` refer), because
-  `Logos.Primitives`'s `"macro?"` clause resolves the symbol's location
-  via `symbol_location/2` (current-namespace-only), not the fuller chain
-  `Logos.Eval.resolve_symbol_location/2`/`Logos.Macroexpand` themselves
-  use for actual macro dispatch (which works correctly regardless of this
-  bug -- only the introspection primitive is affected).
+This section tracks bugs/incompleteness in behavior Logos already
+claims to support. For Clojure features Logos has never claimed to
+support yet (threading macros, destructuring, protocols/multimethods,
+and more), see [ROADMAP.md](ROADMAP.md) instead -- a different kind of
+list, forward-looking rather than a bug list.
 
-None of the above are exercised by the existing test suite, which is why
-they went unnoticed until this documentation pass deliberately verified
-every code example against the real implementation rather than trusting
-the original design spec. If you fix one, please also update the
+If you fix a gap you add here later, please also update the
 corresponding note in [guides/language/LOGOS.md](guides/language/LOGOS.md)
-and [guides/language/LOGOS_CHEATSHEET.md](guides/language/LOGOS_CHEATSHEET.md).
+and
+[guides/language/LOGOS_CHEATSHEET.md](guides/language/LOGOS_CHEATSHEET.md).
 
 ## Submitting changes
 
@@ -198,8 +169,12 @@ and [guides/language/LOGOS_CHEATSHEET.md](guides/language/LOGOS_CHEATSHEET.md).
 - Add or update tests for any behavior change.
 - Run the full verification set above before opening a PR: `mix
   precommit`, plus `mix logos.format --check-formatted` if you touched
-  any `.lisp` source.
-- If you touch `lib/logos/stdlib.lisp`, remember it's dogfooded at
+  any `.logos` source.
+- If you touch a `priv/stdlib/*.logos` file, remember it's dogfooded at
   startup (`Logos.Stdlib.load!/1` actually reads/macroexpands/evaluates
-  it) -- a broken macro there fails loudly the next time any test builds
-  a `Logos.Runtime` via `Logos.new_runtime/1`, which is by design.
+  every one of them) -- a broken macro there fails loudly the next time
+  any test builds a `Logos.Runtime` via `Logos.new_runtime/1`, which is
+  by design. `test/logos_scripts/` has hand-written `.logos` test
+  scripts exercising the language end to end (run via
+  `test/logos_scripts_test.exs`) -- add to those too for a
+  language-level behavior change, not just the Elixir-side ExUnit tests.

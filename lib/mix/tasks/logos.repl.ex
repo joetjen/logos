@@ -1,21 +1,24 @@
 defmodule Mix.Tasks.Logos.Repl do
   @moduledoc """
   Starts a local Logos REPL: a fresh Runtime with `logos.core` and any
-  project `.lisp` files preloaded, then a stdin read-eval-print loop
+  project `.logos` files preloaded, then a stdin read-eval-print loop
   with a Clojure-style prompt (`user=>`).
 
   ## Usage
 
       mix logos.repl
 
-  Builds a fresh `Logos.Runtime` (`Logos.new_runtime/0` -- Layer 1
-  primitives + `stdlib.lisp` already loaded into `logos.core`), then
-  best-effort-preloads every `*.lisp` file found under `lib/` by reading
-  and evaluating each one as a top-level form sequence, in the current
-  namespace (`user`) -- **not** wrapped in its own `(ns ...)`, since
-  real file-based `require` loading doesn't exist yet (`Logos.Primitives`'
-  `load_ns!/2` currently only supports requiring a namespace that's
-  already loaded in-memory; see that function's own leading comment). A
+  Builds a fresh `Logos.Runtime` (`Logos.new_runtime/1` with `lib` as its
+  `:load_paths` -- Layer 1 primitives + `priv/stdlib/*.logos` already
+  loaded into `logos.core`, and `(require 'my-app.core)` able to resolve
+  `lib/my_app/core.logos` on demand, see `Logos.Primitives`' `load_ns!/2`),
+  then best-effort-preloads every `*.logos` file found under `lib/` by
+  reading and evaluating each one as a top-level form sequence, in the
+  current namespace (`user`) -- **not** wrapped in its own `(ns ...)`.
+  This flat preload is a distinct, complementary mechanism from
+  `require`'s on-demand disk loading: it eagerly loads *every* file under
+  `lib/` regardless of namespace, purely so a REPL session starts with
+  everything already usable without an explicit `require` at all. A
   project file that wants its own namespace still needs an
   explicit `(ns ...)`/`(in-ns ...)` form of its own at its top, exactly
   as if it had been typed at the REPL. A preload file that fails to parse
@@ -37,7 +40,7 @@ defmodule Mix.Tasks.Logos.Repl do
   def run(_argv) do
     Mix.Task.run("app.start")
 
-    runtime = Logos.new_runtime()
+    runtime = Logos.new_runtime(load_paths: ["lib"])
     preload_project_files!(runtime)
 
     Logos.Repl.start(runtime: runtime)
@@ -46,7 +49,7 @@ defmodule Mix.Tasks.Logos.Repl do
   defp preload_project_files!(runtime) do
     if File.dir?("lib") do
       "lib"
-      |> Path.join("**/*.lisp")
+      |> Path.join("**/*.logos")
       |> Path.wildcard()
       |> Enum.sort()
       |> Enum.each(&preload_one!(runtime, &1))

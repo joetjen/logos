@@ -39,7 +39,7 @@ defmodule Logos.MacroexpandTest do
     assert twice == form
   end
 
-  describe "real macro expansion (defmacro bootstrap via stdlib.lisp)" do
+  describe "real macro expansion (defmacro bootstrap via core.logos)" do
     test "if expands to a cond call and evaluates correctly" do
       runtime = new_rt()
       env = Env.new()

@@ -7,16 +7,16 @@ defmodule Logos.Atom do
 
   This Elixir struct is deliberately *just* an identity wrapper -- an
   address, exactly like `Logos.Pid` -- around the pid of a small
-  self-recursive Lisp loop process (`atom-loop` in `stdlib.lisp`) that
+  self-recursive Lisp loop process (`atom-loop` in `concurrency.logos`) that
   actually holds and services the atom's state. **No stateful behaviour
   lives here**: `atom`/`deref`/`swap!`/`reset!` are ordinary Lisp
-  functions in `stdlib.lisp`, built on `spawn`/`send`/`receive` (the
+  functions in `concurrency.logos`, built on `spawn`/`send`/`receive` (the
   `Logos.Process` primitives). This is intentionally *not* an Elixir
   `GenServer`/`Agent` reimplementation: keeping the atom's state machine
   as plain message-passing Lisp code (rather than special-cased Elixir
   behaviour) keeps the Elixir-level primitive surface small and lets
   atoms be inspected/reasoned about like any other Logos value. See
-  `stdlib.lisp`'s "atoms" section for the loop process itself.
+  `concurrency.logos`'s "atoms" section for the loop process itself.
 
   Kept as a *distinct* struct from `Logos.Pid` (rather than reusing
   `Logos.Pid` directly) so that Logos-level predicates like a hypothetical

@@ -19,14 +19,14 @@ defmodule Logos.Namespace do
     * `auto_refer_core?` -- every namespace except `logos.core` itself
       implicitly sees `logos.core`'s public vars, so the standard library
       (interned into `logos.core` by both the Layer-1 primitives and
-      `stdlib.lisp`'s Layer-2 macros/functions) is visible everywhere
+      `priv/stdlib/*.logos`'s Layer-2 macros/functions) is visible everywhere
       without an explicit `require`. Implemented as a resolution-time
       fallback (`Logos.Eval.resolve_symbol_location/2` checks
       `logos.core` directly when this flag is set and nothing else
       matched) rather than as a literal one-time copy into `refers`: a
       snapshot-copy taken at `ensure!/2` time would go stale the moment
       `logos.core` gains a new var afterward (exactly what happens during
-      bootstrap: `user` is `ensure!`'d before `stdlib.lisp` finishes
+      bootstrap: `user` is `ensure!`'d before the `priv/stdlib/*.logos` files finish
       loading `if`/`let`/etc. into `logos.core`). Resolving dynamically
       instead means `user` (and every other namespace) always sees the
       *current* contents of `logos.core`, which is both simpler to get

@@ -298,6 +298,154 @@ defmodule Logos.EvalTest do
       assert {:ok, []} = eval!("(rest (list))")
       assert {:ok, nil} = eval!("(first (list))")
     end
+
+    test "get/assoc/dissoc on plain maps" do
+      default = Logos.Keyword.intern("default")
+
+      assert {:ok, 1} = eval!("(get {:a 1} :a)")
+      assert {:ok, nil} = eval!("(get {:a 1} :b)")
+      assert {:ok, ^default} = eval!("(get {:a 1} :b :default)")
+      assert {:ok, %{}} = eval!("(dissoc {:a 1} :a)")
+      assert {:ok, true} = eval!("(= (assoc {} :a 1) {:a 1})")
+      assert {:ok, true} = eval!("(= (assoc {} :a 1 :b 2) {:a 1 :b 2})")
+    end
+
+    test "keyword-as-function looks values up in a map, like Clojure" do
+      default = Logos.Keyword.intern("default")
+
+      assert {:ok, 1} = eval!("(:a {:a 1})")
+      assert {:ok, nil} = eval!("(:b {:a 1})")
+      assert {:ok, ^default} = eval!("(:b {:a 1} :default)")
+      assert {:ok, nil} = eval!("(:a nil)")
+    end
+
+    test "quot truncates toward zero, matching Erlang's div/2 and real Clojure" do
+      assert {:ok, 3} = eval!("(quot 7 2)")
+      assert {:ok, -3} = eval!("(quot -7 2)")
+      assert {:error, :division_by_zero} = eval!("(quot 1 0)")
+    end
+
+    test "rem's sign always matches the dividend's, matching Erlang's rem/2 and real Clojure" do
+      assert {:ok, 1} = eval!("(rem 7 2)")
+      assert {:ok, -1} = eval!("(rem -7 2)")
+      assert {:ok, 1} = eval!("(rem 7 -2)")
+      assert {:error, :division_by_zero} = eval!("(rem 1 0)")
+    end
+
+    test "keyword builds a keyword from a string or a symbol" do
+      a = Logos.Keyword.intern("a")
+      ns_x = Logos.Keyword.intern("ns/x")
+
+      assert {:ok, ^a} = eval!(~S|(keyword "a")|)
+      assert {:ok, ^ns_x} = eval!(~S|(keyword "ns" "x")|)
+      assert {:ok, ^a} = eval!("(keyword 'a)")
+      assert {:ok, ^ns_x} = eval!("(keyword 'ns/x)")
+    end
+
+    test "str stringifies every value and concatenates -- nil is empty, a string passes through bare" do
+      assert {:ok, "a1:b"} = eval!(~S|(str "a" 1 :b)|)
+      assert {:ok, ""} = eval!("(str nil)")
+      assert {:ok, ""} = eval!("(str)")
+      assert {:ok, "abc"} = eval!(~S|(str "abc")|)
+    end
+
+    test "apply spreads the final argument's elements onto f, fixed args passing through first" do
+      assert {:ok, 6} = eval!("(apply + (list 1 2 3))")
+      assert {:ok, 10} = eval!("(apply + 1 2 (list 3 4))")
+      assert {:ok, []} = eval!("(apply list [])")
+    end
+
+    test "apply's spread argument accepts a vector, not just a list" do
+      assert {:ok, 6} = eval!("(apply + [1 2 3])")
+    end
+
+    test "apply against a user-defined fn (not just a primitive)" do
+      runtime = new_rt()
+      {:ok, _, _} = Logos.eval_string("(defn eval-test-apply-add [a b c] (+ a b c))", runtime)
+      assert {:ok, 6, _} = Logos.eval_string("(apply eval-test-apply-add (list 1 2 3))", runtime)
+    end
+  end
+
+  describe "ratio arithmetic and comparison" do
+    test "/ divides an already-constructed ratio further instead of erroring" do
+      assert {:ok, %Logos.Ratio{num: 1, den: 6}} = eval!("(/ (/ 1 3) 2)")
+    end
+
+    test "+ and - accept a ratio operand instead of raising ArithmeticError" do
+      assert {:ok, 1} = eval!("(+ 1/3 2/3)")
+      assert {:ok, %Logos.Ratio{num: 1, den: 6}} = eval!("(- 1/2 1/3)")
+    end
+
+    test "* accepts a ratio operand" do
+      assert {:ok, %Logos.Ratio{num: 2, den: 3}} = eval!("(* 1/3 2)")
+    end
+
+    test "< and friends compare ratios by fraction magnitude, not struct fields" do
+      assert {:ok, true} = eval!("(< 1/3 1/2)")
+      assert {:ok, false} = eval!("(> 1/3 1/2)")
+      assert {:ok, true} = eval!("(<= 1/2 1/2)")
+      assert {:ok, true} = eval!("(>= 1/2 1/2)")
+    end
+
+    test "regression: a ratio mixed with a float used to crash (no clause matched a bare a + b), now produces a float" do
+      assert {:ok, x} = eval!("(+ 1/3 1.5)")
+      assert_in_delta x, 11 / 6, 1.0e-10
+      assert {:ok, y} = eval!("(+ 1.5 1/3)")
+      assert_in_delta y, 11 / 6, 1.0e-10
+      assert {:ok, z} = eval!("(/ 1/2 2.0)")
+      assert_in_delta z, 0.25, 1.0e-10
+    end
+  end
+
+  describe "decimal arithmetic and comparison" do
+    test "decimal + integer (either order) promotes the integer, exactly" do
+      assert {:ok, %Decimal{} = a} = eval!("(+ 1M 2)")
+      assert Decimal.equal?(a, Decimal.new("3"))
+      assert {:ok, %Decimal{} = b} = eval!("(+ 2 1M)")
+      assert Decimal.equal?(b, Decimal.new("3"))
+    end
+
+    test "decimal + decimal is exact, scale-preserving" do
+      assert {:ok, %Decimal{} = r} = eval!("(* 1.5M 2M)")
+      assert Decimal.equal?(r, Decimal.new("3.0"))
+    end
+
+    test "decimal + ratio (either order) promotes to decimal" do
+      assert {:ok, %Decimal{} = a} = eval!("(+ 1M 1/2)")
+      assert Decimal.equal?(a, Decimal.new("1.5"))
+      assert {:ok, %Decimal{} = b} = eval!("(+ 1/2 1M)")
+      assert Decimal.equal?(b, Decimal.new("1.5"))
+    end
+
+    test "decimal + float (either order) produces a float -- float poisons everything" do
+      assert {:ok, 2.0} = eval!("(+ 1M 1.0)")
+      assert {:ok, 2.0} = eval!("(+ 1.0 1M)")
+    end
+
+    test "/ divides decimals exactly, and rejects a zero divisor (int or decimal)" do
+      assert {:ok, %Decimal{} = r} = eval!("(/ 10M 4)")
+      assert Decimal.equal?(r, Decimal.new("2.5"))
+      assert {:error, :division_by_zero} = eval!("(/ 10M 0)")
+      assert {:error, :division_by_zero} = eval!("(/ 10M 0M)")
+    end
+
+    test "< <= compare by value, matching Decimal.compare/2 -- 1.1M and 1.10M are numerically equal" do
+      assert {:ok, false} = eval!("(< 1.1M 1.10M)")
+      assert {:ok, true} = eval!("(<= 1.1M 1.10M)")
+      assert {:ok, true} = eval!("(< 1M 2M)")
+    end
+
+    test "= is scale-sensitive (matches real Clojure/Java BigDecimal.equals, not numeric equality)" do
+      assert {:ok, false} = eval!("(= 1.10M 1.1M)")
+      assert {:ok, true} = eval!("(= 1.1M 1.1M)")
+    end
+
+    test "number?/decimal? recognize decimals" do
+      assert {:ok, true} = eval!("(number? 1M)")
+      assert {:ok, true} = eval!("(decimal? 1M)")
+      assert {:ok, false} = eval!("(decimal? 1)")
+      assert {:ok, %Logos.Keyword{name: "decimal"}} = eval!("(type-of 1M)")
+    end
   end
 
   # ---- TCO sanity ---------------------------------------------------------------

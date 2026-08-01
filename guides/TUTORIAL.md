@@ -33,10 +33,13 @@ runtime = Logos.new_runtime()
 ```
 
 `Logos.new_runtime/1` is a convenience: it builds a bare `Logos.Runtime`
-and loads `stdlib.lisp` into it (so `if`/`let`/`when`/`defn`/`receive`/etc.
-are ready to use). If you ever need the primitives *without* the stdlib
-layer (rare -- mostly useful for isolating a stdlib bug), you can call
-`Logos.Runtime.new/1` directly and skip `Logos.Stdlib.load!/1`.
+and loads the stdlib (`priv/stdlib/*.logos` -- `logos.core`, `logos.seq`,
+`logos.concurrency`, plus the primitives-only `logos.map`, all referred
+into `logos.core`) into it (so `if`/`let`/`when`/`defn`/`map`/`filter`/
+`get`/`receive`/etc. are ready to use, unqualified, from anywhere). If you
+ever need the primitives *without* the stdlib layer (rare -- mostly useful
+for isolating a stdlib bug), you can call `Logos.Runtime.new/1` directly
+and skip `Logos.Stdlib.load!/1`.
 
 ## 3. Evaluate a string
 
@@ -147,13 +150,13 @@ user-editable scripts without recompiling. Here's a minimal version --
 a "rule" is a Logos function taking plain positional arguments and
 returning a keyword verdict, and the host runs a whole file of them:
 
-> Note: Logos maps (`{...}`) and vectors can be *built* and *printed*, but
-> this phase of the implementation has no built-in "look a value up by
-> key" primitive yet (no `get`, and no Clojure-style `(:key map)` calling
-> convention) -- see the [cheatsheet](CHEATSHEET.md) and
-> [CONTRIBUTION.md](../CONTRIBUTION.md) for the honest list of current gaps.
-> Passing plain positional arguments (as below), or a list your own
-> Logos-side helper walks with `first`/`rest`, both work fine today.
+> Note: Logos maps support `get`/`assoc`/`dissoc` and Clojure-style
+> `(:key map)` keyword-as-function lookup, so a rule could just as well
+> take a single map argument and pull fields out of it with `(:total
+> order)`. The example below sticks to plain positional arguments for
+> simplicity -- see the [cheatsheet](CHEATSHEET.md) and
+> [CONTRIBUTING.md](../CONTRIBUTING.md) for the honest list of current
+> gaps.
 
 ```elixir
 defmodule MyApp.RuleEngine do

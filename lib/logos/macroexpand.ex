@@ -45,7 +45,7 @@ defmodule Logos.Macroexpand do
   *macro*, not a special form; it doesn't need its own case here because
   by the time the walker's fixed-point recursion re-expands a `let`
   call's own expansion, that expansion is built from real `fn`s (see
-  `stdlib.lisp`), so the `fn` case below picks its bindings up for free,
+  `core.logos`), so the `fn` case below picks its bindings up for free,
   exactly the way `let`'s macro-based design intends.
 
   Before treating a list's head symbol as a possible macro call,

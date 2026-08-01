@@ -1,0 +1,33 @@
+;; Feature test: ns/in-ns/require with :as, and cross-namespace
+;; unqualified resolution -- logos.seq/logos.map/logos.concurrency
+;; functions stay reachable with no namespace prefix from a brand new
+;; namespace, purely through logos.core's own refer of each of them.
+;;
+;; Each `deftest` body below runs in its own freshly spawned process
+;; (see `logos.test`'s moduledoc), which always starts back in `user`
+;; regardless of what an earlier test's `(ns ...)`/`(in-ns ...)` did --
+;; so switching namespaces inside one test body here can't leak into any
+;; other.
+
+(require '[logos.test :refer [:all]])
+(deftest ns-switches-current-namespace-and-require-as-works
+  (do
+    (ns logos-test.ns-feature
+      (:require [logos.seq :as sq]))
+    (assert= (sq/map (fn [x] (* x 10)) (list 1 2 3)) (list 10 20 30))
+    ;; Unqualified from this fresh, non-core namespace too -- no explicit
+    ;; require needed for these, unlike the aliased `sq/map` call above.
+    (assert= (map (fn [x] (+ x 1)) (list 1 2 3)) (list 2 3 4))
+    (assert= (get {:a 1} :a) 1)
+    (assert= (reverse (list 1 2 3)) (list 3 2 1))))
+(deftest in-ns-back-to-user
+  (do
+    (ns logos-test.ns-other)
+    (in-ns 'user)
+    (def logos-test-ns-marker 1)
+    ;; `ns-vars` (a REPL-oriented introspection primitive) returns plain
+    ;; strings, not symbols.
+    (assert=
+      (empty? (filter (fn [n] (= n "logos-test-ns-marker")) (ns-vars 'user)))
+      false)))
+(run-tests)

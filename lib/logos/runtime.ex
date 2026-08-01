@@ -60,6 +60,10 @@ defmodule Logos.Runtime do
       mid-`require`, for circular-require detection. See
       `start_loading!/2`/`finish_loading!/2`.
     * `:gensym_counter` -> an integer counter for `gensym`.
+    * `:load_paths` -> a fixed (set once at `new/1`, never mutated) list
+      of directory strings `require`/`use` search on disk for a namespace
+      not already in-memory. See `load_paths/1` and `Logos.Primitives`'
+      `load_ns!/2`.
 
   Granular per-var/per-ns rows (rather than one giant nested map for the
   whole registry) are deliberate: two concurrent `def`s into two
@@ -71,7 +75,7 @@ defmodule Logos.Runtime do
   `spawn`/`spawn-link`/`spawn-monitor` make concurrent writers real: two
   processes racing to `def` the same Var, or to `alias!`/`refer!` into
   the same namespace, can lose one write. In practice the stdlib's `atom`
-  (see `stdlib.lisp`) sidesteps this entirely by funneling all mutation
+  (see `concurrency.logos`) sidesteps this entirely by funneling all mutation
   of a given piece of state through one owning process rather than
   relying on this table's own atomicity.
   """
@@ -88,11 +92,18 @@ defmodule Logos.Runtime do
   (`Logos.Primitives.install!/1`) interned into it, and a `user`
   namespace (auto-referring `logos.core`) as the starting namespace --
   every fresh Runtime starts with `"user"` as its current namespace. Does
-  **not** load `stdlib.lisp` -- that is `Logos.Stdlib.load!/1` (or the
+  **not** load `priv/stdlib/*.logos` -- that is `Logos.Stdlib.load!/1` (or the
   `Logos.new_runtime/0` convenience, which does both).
+
+  `opts[:load_paths]` -- a list of directory strings `require`/`use`
+  search (in order, first match wins) when asked for a namespace not
+  already in-memory; see `load_paths/1` and `Logos.Primitives`'
+  `load_ns!/2`. Defaults to `[]`, meaning `require`/`use` only ever
+  succeed against a namespace already loaded in-memory (this `Runtime`'s
+  behavior before file-based loading existed).
   """
   @spec new(keyword()) :: t()
-  def new(_opts \\ []) do
+  def new(opts \\ []) do
     table = :ets.new(:logos_runtime, [:set, :public])
     runtime = %__MODULE__{table: table}
 
@@ -100,6 +111,7 @@ defmodule Logos.Runtime do
     :ets.insert(table, {:loading, MapSet.new()})
     :ets.insert(table, {:gensym_counter, 0})
     :ets.insert(table, {:argv, []})
+    :ets.insert(table, {:load_paths, Keyword.get(opts, :load_paths, [])})
 
     Namespace.ensure!(runtime, "logos.core")
     Logos.Primitives.install!(runtime)
@@ -146,16 +158,14 @@ defmodule Logos.Runtime do
   than raising directly, leaving the choice of whether to raise to the
   caller; `Logos.Primitives`' `require` primitive raises.
 
-  Real file-based loading (reading a required namespace's `.lisp` file
-  off disk, following the `my-app.core -> my_app/core.lisp`
-  dot-to-slash/dash-to-underscore naming convention) is **not**
-  implemented yet -- this only guards against re-requiring a namespace
-  that is already fully in-memory (a no-op) or actively mid-load (an
-  error); it is exercised by `Logos.Primitives`' `require`/`use`
-  primitives against namespaces that already exist in this `Runtime`
-  (e.g. `def`'d by Logos code evaluated earlier in the same process). A
-  future version should wire this bracket around real `.lisp` file
-  loading from disk.
+  Brackets both routes `load_ns!/2` can take for a namespace not already
+  in-memory: real file-based loading off disk (following the
+  `my-app.core -> my_app/core.logos` dot-to-slash/dash-to-underscore
+  naming convention, searched across `load_paths/1`) recursing into a
+  `require` of its own inside the loaded file, and the (now purely
+  historical) already-in-memory short-circuit that never actually reaches
+  this function at all. See `Logos.Primitives`' `load_ns!/2` for the full
+  resolution.
   """
   @spec start_loading!(t(), String.t()) :: :ok | {:error, {:circular_require, String.t()}}
   def start_loading!(%__MODULE__{table: table} = runtime, name) do
@@ -195,6 +205,18 @@ defmodule Logos.Runtime do
   def argv(%__MODULE__{table: table}) do
     [{:argv, argv}] = :ets.lookup(table, :argv)
     argv
+  end
+
+  @doc """
+  This `Runtime`'s configured `require`/`use` search path -- see `new/1`'s
+  `:load_paths` opt and `Logos.Primitives`' `load_ns!/2`. Fixed at `new/1`
+  time; there is no setter, matching every other embedder-configured
+  `Runtime` option.
+  """
+  @spec load_paths(t()) :: [String.t()]
+  def load_paths(%__MODULE__{table: table}) do
+    [{:load_paths, paths}] = :ets.lookup(table, :load_paths)
+    paths
   end
 
   @doc "A fresh gensym name, e.g. `\"G__1\"`, `\"G__2\"`, ... -- unique within this `Runtime`."

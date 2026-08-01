@@ -1,0 +1,46 @@
+;; A small worker-pool example: splits a list of numbers into chunks,
+;; spawns one real BEAM process per chunk to compute the sum of squares
+;; of just that chunk, and the coordinator collects every partial result
+;; via receive -- exercises spawn/send/receive, logos.seq functions
+;; (take/drop/reduce), and closures capturing data across a process
+;; boundary, all working together on one realistic-shaped task.
+
+(require '[logos.test :refer [:all]])
+(defn sum-of-squares
+  "The sum of `x*x` for every `x` in list `nums`."
+  [nums]
+  (reduce (fn [acc x] (+ acc (* x x))) 0 nums))
+(defn spawn-worker
+  "Spawns a process that computes `chunk`'s sum of squares and sends
+  `(:partial result)` back to `coordinator`."
+  [coordinator chunk]
+  (spawn (fn []
+      (send coordinator (list :partial (sum-of-squares chunk))))))
+(defn collect
+  "Blocks for exactly `n` `:partial` messages, summing them into `total`."
+  [n total]
+  (if (<= n 0)
+    total
+    (receive [msg]
+      ((= (first msg) :partial)
+        (collect (- n 1) (+ total (first (rest msg))))))))
+(deftest sum-of-squares-is-correct-standalone
+  (assert= (sum-of-squares (list 1 2 3 4 5)) (+ 1 4 9 16 25)))
+(deftest two-workers-produce-the-same-total-as-one
+  (do
+    (def numbers (list 1 2 3 4 5 6 7 8 9 10))
+    (def chunk-a (take 5 numbers))
+    (def chunk-b (drop 5 numbers))
+    (assert= chunk-a (list 1 2 3 4 5))
+    (assert= chunk-b (list 6 7 8 9 10))
+    (def me (self))
+    (spawn-worker me chunk-a)
+    (spawn-worker me chunk-b)
+    (assert= (collect 2 0) (sum-of-squares numbers))))
+(deftest splitting-into-chunks-changes-nothing-about-the-total
+  (do
+    (def numbers (list 1 2 3 4 5 6 7 8 9 10))
+    (def me (self))
+    (spawn-worker me numbers)
+    (assert= (collect 1 0) 385)))
+(run-tests)

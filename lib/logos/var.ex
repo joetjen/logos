@@ -70,7 +70,7 @@ defmodule Logos.Var do
   def alter_meta!(runtime, %__MODULE__{ns: ns, name: name}, fun),
     do: Namespace.alter_meta!(runtime, ns, name, fun)
 
-  @doc "Whether this Var is flagged as a macro (`meta[:macro] == true`) -- the sole mechanism by which `defmacro` (a bootstrapped ordinary function, see `stdlib.lisp`) makes something behave as a macro."
+  @doc "Whether this Var is flagged as a macro (`meta[:macro] == true`) -- the sole mechanism by which `defmacro` (a bootstrapped ordinary function, see `core.logos`) makes something behave as a macro."
   @spec macro?(Logos.Runtime.t(), t()) :: boolean()
   def macro?(runtime, %__MODULE__{} = var), do: meta(runtime, var)[:macro] == true
 
