@@ -21,8 +21,7 @@ defmodule Logos.SeqPropertyTest do
 
   defp call!(runtime, name, args) do
     {:ok, f} = Logos.Namespace.get_var_value(runtime, "logos.seq", name)
-    {:ok, result} = Eval.apply_fn(f, args, runtime)
-    result
+    Eval.apply_fn(f, args, runtime)
   end
 
   property "sort produces a non-decreasing permutation of the input" do

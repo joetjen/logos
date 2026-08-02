@@ -169,14 +169,26 @@ itself doesn't. See LOGOS.md 7.4.
 
 ## Errors
 
-| Reason shape | Catchable via Logos `try`? |
-|---|---|
-| `{:uncaught_throw, tag, value}` | n/a -- this *is* what escaped a `try` |
-| an explicit `(throw tag value)` inside `try` | **yes** -- `(catch tag e ...)` |
-| `:division_by_zero` (from `/`) | **no** -- propagates as `{:error, _}`, not a Logos throw |
-| `{:unbound_symbol, name}` | **no** |
-| `{:not_a_number, args}` | **no** |
-| `{:arity_mismatch, ...}` | **no** |
+`try`/`catch` catches primitive-level failures too, not only an explicit
+`(throw ...)` -- see LOGOS.md section 4. A catch tag is *derived* from
+the failure's own reason (underscores -> hyphens: `:division_by_zero` ->
+`:division-by-zero`; a tuple's first element for `{:unbound_symbol,
+name}` -> `:unbound-symbol`); the caught value is a plain string. A
+catch clause tagged `:error` is a wildcard, matching any primitive-level
+failure -- an explicit `(throw ...)`'s own matching stays exact-tag-only.
+
+| Reason shape | Derived catch tag | Catchable via Logos `try`? |
+|---|---|---|
+| `{:uncaught_throw, tag, value}` | n/a | n/a -- this *is* what escaped a `try` |
+| an explicit `(throw tag value)` inside `try` | `tag` itself | **yes** -- `(catch tag e ...)`, exact match only |
+| `:division_by_zero` (from `/`) | `:division-by-zero` | **yes** -- `(catch :division-by-zero e ...)` or `(catch :error e ...)` |
+| `{:unbound_symbol, name}` | `:unbound-symbol` | **yes** |
+| `{:not_a_number, args}` | `:not-a-number` | **yes** |
+| `{:arity_mismatch, ...}` | `:arity-mismatch` | **yes** |
+
+Uncaught (no `try`, or no matching clause), a primitive-level failure
+still surfaces exactly as before: `{:error, reason}` at
+`Logos.eval_string/3`/`eval_string_sequence/3`'s outermost boundary.
 
 ## Known gaps
 

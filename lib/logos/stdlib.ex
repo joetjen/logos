@@ -112,12 +112,11 @@ defmodule Logos.Stdlib do
       Enum.each(forms, fn form ->
         expanded = Macroexpand.expand(form, locals, runtime)
 
-        case Eval.eval(expanded, env, runtime) do
-          {:ok, _value} ->
-            :ok
-
-          {:error, reason} ->
-            raise "#{ns} stdlib file failed to load: #{inspect(reason)} while evaluating #{inspect(form)}"
+        try do
+          Eval.eval(expanded, env, runtime)
+        rescue
+          e in Logos.EvalError ->
+            raise "#{ns} stdlib file failed to load: #{inspect(e.reason)} while evaluating #{inspect(form)}"
         end
       end)
     after

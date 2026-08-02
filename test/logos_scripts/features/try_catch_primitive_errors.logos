@@ -1,0 +1,23 @@
+;; Feature test: `try`/`catch` can catch a primitive-level failure
+;; (division by zero, an unbound symbol, ...), not just an explicit
+;; `(throw ...)` -- ROADMAP.md's first Tier 3 item. `assert-throws`
+;; (logos.test) already works directly against this: its own `(catch tag
+;; v v)` matches the *derived* tag (e.g. `:division-by-zero`) exactly the
+;; same way it already matches an explicit throw's own literal tag.
+
+(require '[logos.test :refer [:all]])
+(deftest try-catch-division-by-zero-by-exact-tag
+  (assert-throws :division-by-zero (/ 1 0)))
+(deftest try-catch-unbound-symbol-by-exact-tag
+  (assert-throws :unbound-symbol try-catch-test-totally-unbound))
+(deftest try-catch-error-wildcard-catches-any-primitive-failure
+  (do
+    (assert= (try (/ 1 0) (catch :error e :caught)) :caught)
+    (assert= (try try-catch-test-totally-unbound-2 (catch :error e :caught)) :caught)))
+(deftest try-catch-non-matching-tag-does-not-swallow-the-failure
+  (assert-throws :division-by-zero
+    (try (/ 1 0) (catch :some-other-tag e e))))
+(deftest try-catch-explicit-throw-still-only-exact-tag-matched
+  (assert-throws :try-catch-test-explicit
+    (try (throw :try-catch-test-explicit "payload") (catch :error e e))))
+(run-tests)

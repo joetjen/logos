@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`try`/`catch` now catches primitive-level failures** (division by
+  zero, an unbound symbol, a wrong-arity call, ...), not only an
+  explicit `(throw ...)` -- `ROADMAP.md`'s first Tier 3 item, previously
+  a deliberate, documented divergence from Clojure; revisited and built
+  on explicit request after weighing the two implementation routes (a
+  surgical widening of `try` alone, vs. a full internal switch to real
+  Elixir `raise`/`rescue`) -- went with the latter. `Logos.Eval`/
+  `Logos.Primitives`' entire `{:ok, value} | {:error, reason}` return
+  convention is now raise-based internally: every primitive-level
+  failure raises a new `Logos.EvalError` (`reason` unchanged from what
+  the old tuple's second element always was), modeled directly on
+  `Logos.Macroexpand`'s pre-existing `Logos.MacroError` pattern. `try`'s
+  own `rescue` (already there for `Logos.Thrown`) now also catches
+  `Logos.EvalError`, matching a `catch` clause against a tag *derived*
+  from `reason` (a bare atom becomes its own hyphenated keyword,
+  `:division_by_zero` -> `:division-by-zero`; a tuple's first element the
+  same way) -- a catch clause literally tagged `:error` is an additional
+  wildcard, matching any primitive-level failure, mirroring Clojure's
+  `(catch Exception e ...)`; an explicit `(throw ...)`'s own matching
+  stays exact-tag-only, unchanged. The caught value is the failure's own
+  human-readable string message, not an attempt at structured Elixir-
+  term-to-Logos-value conversion. The public API
+  (`Logos.eval_string/3`/`eval_string_sequence/3`) is contractually
+  unaffected -- still `{:ok, value, env} | {:error, reason}`, `reason`
+  the exact same shape as always; this is purely an internal propagation
+  mechanism change. Verified TCO wasn't broken by the switch (no new
+  `try`/`rescue` added anywhere on the hot recursive eval path --
+  `test/logos/tco_test.exs`'s 10,000,000-iteration test re-run
+  specifically to confirm).
 - **Records and protocols** (`defrecord`/`defprotocol`/`extend-type`),
   `ROADMAP.md`'s last open Tier 2 item, deliberately deferred from the
   multimethods work because it raises a question multimethods never

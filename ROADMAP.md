@@ -205,15 +205,20 @@ comparison chains already exist and can be reused).
 
 ## Tier 3 -- lower priority / needs a product decision first
 
-- [ ] **Broader `try`/`catch`** (catching a primitive-level failure like
-      division-by-zero, not just an explicit `(throw ...)`). This is
-      currently a *deliberate*, documented divergence from Clojure (see
-      `LOGOS.md` section 4's "Important distinction"), not an oversight
-      -- revisit only if real usage shows the current behavior is
-      actually a problem in practice, not just a difference. Widening
-      `try`/`catch`'s scope has real design consequences for the
-      process-crash-based error model `logos.test`/`Logos.Process` both
-      already lean on.
+- [x] **Broader `try`/`catch`.** Done -- see `CHANGELOG.md`. Revisited
+      on explicit request (previously a deliberate divergence, gated
+      behind exactly that). Chose the full internal switch to real
+      `raise`/`rescue` (`Logos.EvalError`, modeled on the pre-existing
+      `Logos.MacroError` pattern) over a narrower "just widen `try`
+      itself" alternative -- `Logos.Eval`/`Logos.Primitives`' entire
+      `{:ok,_}|{:error,_}` convention is now raise-based internally, with
+      the public `Logos.eval_string/3`/`eval_string_sequence/3` contract
+      completely unaffected. `logos.test`/`Logos.Process`'s process-
+      crash-based error model turned out unaffected too:
+      `Logos.Process.run_thunk/2` still converts an uncaught failure into
+      `Logos.ProcessCrash` with the identical `reason` shape. Confirmed
+      TCO wasn't broken (`test/logos/tco_test.exs`'s 10,000,000-
+      iteration test re-run specifically).
 - [ ] **Reader tagged literals** (`#inst`, `#uuid`, and a general
       extensible tagged-literal mechanism) and **reader conditionals**
       (`#?(:clj ...)`) -- lower priority since Logos has exactly one

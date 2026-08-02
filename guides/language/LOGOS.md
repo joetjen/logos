@@ -166,14 +166,39 @@ matching `catch` propagates as a genuine Elixir exception
 (`Logos.Thrown`) past the `try`; `Logos.eval_string/3` catches it at the
 outermost boundary and reports `{:error, {:uncaught_throw, tag, value}}`.
 
-**Important distinction:** only an explicit `(throw ...)` is catchable
-this way. A primitive-level failure (e.g. `(/ 1 0)`, an unbound symbol, a
-wrong-arity call) is `Logos.Eval`'s own `{:error, reason}` convention, not
-a Logos-level exception -- it is *not* something a `try`/`catch` inside
-the same evaluation can intercept; it propagates straight out to
-whatever called `Logos.eval_string`/`eval_string_sequence` and halts that
-call. If you need code that survives a division by zero, guard it
-yourself (e.g. check the divisor first) rather than wrapping it in `try`.
+**`try`/`catch` also catches primitive-level failures** -- division by
+zero, an unbound symbol, a wrong-arity call, and so on -- not only an
+explicit `(throw ...)`, matching real Clojure's own `try`/`catch` being
+able to catch any runtime error:
+
+```clojure
+(try (/ 1 0) (catch :division-by-zero e e))
+;;=> "logos eval error: :division_by_zero"
+
+(try totally-unbound-thing (catch :unbound-symbol e :caught))
+;;=> :caught
+
+(try (/ 1 0) (catch :error e :caught))   ; :error is a wildcard
+;;=> :caught
+```
+
+A primitive-level failure's catch tag is *derived* from its own error
+reason (`Logos.Eval`'s `eval_error_tag/1`): a bare-atom reason becomes
+its own keyword with underscores turned to hyphens
+(`:division_by_zero` -> `:division-by-zero`); a tuple-shaped reason
+(e.g. `{:unbound_symbol, name}`) uses the tuple's own first element the
+same way. A catch clause literally tagged `:error` is a wildcard,
+matching *any* primitive-level failure regardless of its own derived
+tag -- unlike an explicit `(throw ...)`, whose matching stays exact-tag-
+only, no wildcard, exactly as before. The caught value is always a
+plain string (the failure's own human-readable message) rather than
+structured data -- primitive failures can carry Elixir-internal detail
+that doesn't always have a clean Logos-value representation. Uncaught
+(no `try` at all, or no matching clause), a primitive-level failure
+still surfaces exactly as before: `{:error, reason}` at the outermost
+`Logos.eval_string/3`/`eval_string_sequence/3` boundary, `reason` the
+same shape it's always been (`:division_by_zero`, `{:unbound_symbol,
+name}`, ...).
 
 Safe to build `try`/`catch`/`finally` via syntax-quote inside your own
 macros (`` `(try ~form (catch ~tag v# v#)) ``, exactly the pattern
@@ -1083,17 +1108,21 @@ Every evaluation entry point returns `{:ok, value}` / `{:ok, value, env}`
 or `{:error, reason}` -- Logos-level failures never raise into host
 Elixir code (an uncaught `throw` is converted to
 `{:error, {:uncaught_throw, tag, value}}` at the outermost boundary, see
-[section 4](#4-throw-catch-finally)). Common `reason` shapes:
+[section 4](#4-throw-catch-finally)). That's the public contract;
+internally, a primitive-level failure raises `Logos.EvalError` (`reason`
+the exact same shape), which is what makes it catchable via a
+Logos-level `try`/`catch` too -- see section 4's own explanation of the
+derived catch tag and the `:error` wildcard. Common `reason` shapes:
 
-| Shape | Meaning |
-|---|---|
-| `{:unbound_symbol, name}` | no lexical binding, namespace var, or refer for `name` |
-| `{:not_a_number, args}` | an arithmetic/comparison primitive got a non-number |
-| `{:arity_mismatch, got, expected_shapes}` | called a Logos fn with the wrong argument count |
-| `{:not_callable, value}` | tried to call something that isn't a fn/primitive/host fn |
-| `{:invalid_special_form, form, args}` | malformed `quote`/`cond`/`do`/`def`/`fn`/`try` |
-| `:division_by_zero` | from `/`; **not** catchable via Logos-level `try`, see section 4 |
-| `{:uncaught_throw, tag, value}` | a `(throw ...)` escaped every enclosing `try` |
+| Shape | Meaning | Catch tag |
+|---|---|---|
+| `{:unbound_symbol, name}` | no lexical binding, namespace var, or refer for `name` | `:unbound-symbol` |
+| `{:not_a_number, args}` | an arithmetic/comparison primitive got a non-number | `:not-a-number` |
+| `{:arity_mismatch, got, expected_shapes}` | called a Logos fn with the wrong argument count | `:arity-mismatch` |
+| `{:not_callable, value}` | tried to call something that isn't a fn/primitive/host fn | `:not-callable` |
+| `{:invalid_special_form, form, args}` | malformed `quote`/`cond`/`do`/`def`/`fn`/`try` | `:invalid-special-form` |
+| `:division_by_zero` | from `/` | `:division-by-zero` |
+| `{:uncaught_throw, tag, value}` | a `(throw ...)` escaped every enclosing `try` | n/a -- this *is* what escaped |
 
 ## See also
 

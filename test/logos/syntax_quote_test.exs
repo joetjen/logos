@@ -11,10 +11,18 @@ defmodule Logos.SyntaxQuoteTest do
 
   defp rt, do: Logos.new_runtime()
 
+  # `Logos.Eval.eval/3` returns the value directly, raising on failure
+  # (see that module's moduledoc) -- converts back to the `{:ok, value} |
+  # {:error, reason}` shape this file's tests were written against, the
+  # same conversion `Logos`'s own outermost boundary does for the public
+  # API.
   defp read_eval(source, runtime) do
     {:ok, form} = Reader.read(source, runtime)
     expanded = Macroexpand.expand(form, MapSet.new(), runtime)
-    Logos.Eval.eval(expanded, Env.new(), runtime)
+    {:ok, Logos.Eval.eval(expanded, Env.new(), runtime)}
+  rescue
+    e in Logos.EvalError -> {:error, e.reason}
+    e in Logos.Thrown -> {:error, {:uncaught_throw, e.tag, e.value}}
   end
 
   describe "basic desugaring" do

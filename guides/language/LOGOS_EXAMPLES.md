@@ -184,10 +184,14 @@ pouring a list of two-element `(key value)` lists into an empty map
 ;;=> ((:ok 5) (:error (10 0)))
 ```
 
-Wrapping your own `throw` (as above) rather than relying on the
-underlying `/` primitive's own division-by-zero error is deliberate --
-see [LOGOS.md's error section](LOGOS.md#10-errors): only an explicit
-`throw` is catchable via `try`/`catch`.
+`try`/`catch` can also catch the underlying `/` primitive's own
+division-by-zero failure directly now (`(catch :division-by-zero e e)`,
+or `(catch :error e e)` as a wildcard for any primitive-level failure --
+see [LOGOS.md's error section](LOGOS.md#10-errors)) -- wrapping your own
+`throw`, as above, is still worth doing when you want a *richer* payload
+than the generic string message a primitive-level catch gives you (here,
+the exact `(a b)` pair that failed, not just "division by zero
+happened").
 
 ## 6. A request/reply worker process
 

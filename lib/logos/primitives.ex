@@ -31,6 +31,18 @@ defmodule Logos.Primitives do
   and a way to turn the resulting flat list back into a vector/map/set
   for syntax-quoted `[...]`/`{...}`/`\#{...}` literals.
 
+  ## Error convention
+
+  A primitive that can't do what was asked (division by zero, wrong
+  arity, an unbound symbol upstream, ...) `raise`s `Logos.EvalError`
+  (`Logos.Eval`) rather than returning an `{:error, reason}` tuple --
+  `reason` is exactly what that tuple's second element always was. This
+  lets Logos-level `try`/`catch` intercept a primitive-level failure the
+  same way it already catches an explicit `(throw ...)` -- see
+  `Logos.Eval`'s `eval_try/3`. `Logos.eval_string/3`'s outermost boundary
+  rescues it back into `{:error, reason}`, so the public top-level API's
+  contract is unaffected.
+
   ## Concurrency primitives
 
   `spawn`/`spawn-link`/`spawn-monitor`/`link`/`unlink`/`monitor`/
@@ -91,8 +103,8 @@ defmodule Logos.Primitives do
     end)
   end
 
-  @doc "Applies the primitive named `name` to already-evaluated `args`, against `runtime`. Called by `Logos.Eval.apply_fn/3` whenever the callable value is a `{:primitive, name}` marker."
-  @spec apply(String.t(), [term()], Logos.Runtime.t()) :: {:ok, term()} | {:error, term()}
+  @doc "Applies the primitive named `name` to already-evaluated `args`, against `runtime`. Called by `Logos.Eval.apply_fn/3` whenever the callable value is a `{:primitive, name}` marker. Raises `Logos.EvalError` on failure -- see moduledoc."
+  @spec apply(String.t(), [term()], Logos.Runtime.t()) :: term()
   def apply(name, args, runtime), do: apply_primitive(name, args, runtime)
 
   # ---- arithmetic / comparison (`runtime` is part of the uniform calling shape but unused here) --
@@ -100,20 +112,24 @@ defmodule Logos.Primitives do
   defp apply_primitive("+", args, _runtime), do: numeric_reduce(args, 0, &num_add/2)
   defp apply_primitive("*", args, _runtime), do: numeric_reduce(args, 1, &num_mul/2)
 
-  defp apply_primitive("-", [], _runtime), do: {:error, {:wrong_arity, "-", 0}}
-  defp apply_primitive("-", [x], _runtime), do: {:ok, num_negate(x)}
+  defp apply_primitive("-", [], _runtime),
+    do: raise(Logos.EvalError, reason: {:wrong_arity, "-", 0})
+
+  defp apply_primitive("-", [x], _runtime), do: num_negate(x)
 
   defp apply_primitive("-", [x | rest], _runtime) do
     if Enum.all?([x | rest], &number?/1) do
-      {:ok, Enum.reduce(rest, x, fn element, acc -> num_sub(acc, element) end)}
+      Enum.reduce(rest, x, fn element, acc -> num_sub(acc, element) end)
     else
-      {:error, {:not_a_number, [x | rest]}}
+      raise Logos.EvalError, reason: {:not_a_number, [x | rest]}
     end
   end
 
-  defp apply_primitive("/", [], _runtime), do: {:error, {:wrong_arity, "/", 0}}
+  defp apply_primitive("/", [], _runtime),
+    do: raise(Logos.EvalError, reason: {:wrong_arity, "/", 0})
+
   defp apply_primitive("/", [x], _runtime), do: divide(1, x)
-  defp apply_primitive("/", [x | rest], _runtime), do: Enum.reduce(rest, {:ok, x}, &divide_step/2)
+  defp apply_primitive("/", [x | rest], _runtime), do: Enum.reduce(rest, x, &divide_step/2)
 
   # Integer-only (matching Erlang's own `div`/`rem`, which these wrap
   # directly) -- `/` already covers exact ratio division, and `quot`/
@@ -122,59 +138,70 @@ defmodule Logos.Primitives do
   # and `rem`'s sign already matches the dividend's -- exactly Clojure's
   # own `quot`/`rem` semantics, no extra sign-fixup needed (unlike
   # `mod`, built from `rem` in `core.logos`, which does need one).
-  defp apply_primitive("quot", [_a, 0], _runtime), do: {:error, :division_by_zero}
+  defp apply_primitive("quot", [_a, 0], _runtime),
+    do: raise(Logos.EvalError, reason: :division_by_zero)
 
   defp apply_primitive("quot", [a, b], _runtime) when is_integer(a) and is_integer(b),
-    do: {:ok, div(a, b)}
+    do: div(a, b)
 
-  defp apply_primitive("quot", args, _runtime), do: {:error, {:invalid_args, "quot", args}}
+  defp apply_primitive("quot", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "quot", args})
 
-  defp apply_primitive("rem", [_a, 0], _runtime), do: {:error, :division_by_zero}
+  defp apply_primitive("rem", [_a, 0], _runtime),
+    do: raise(Logos.EvalError, reason: :division_by_zero)
 
   defp apply_primitive("rem", [a, b], _runtime) when is_integer(a) and is_integer(b),
-    do: {:ok, rem(a, b)}
+    do: rem(a, b)
 
-  defp apply_primitive("rem", args, _runtime), do: {:error, {:invalid_args, "rem", args}}
+  defp apply_primitive("rem", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "rem", args})
 
-  defp apply_primitive("=", [], _runtime), do: {:ok, true}
-  defp apply_primitive("=", [_single], _runtime), do: {:ok, true}
+  defp apply_primitive("=", [], _runtime), do: true
+  defp apply_primitive("=", [_single], _runtime), do: true
 
   defp apply_primitive("=", [a, b | rest], _runtime),
-    do: {:ok, chained?([a, b | rest], &(&1 == &2))}
+    do: chained?([a, b | rest], &(&1 == &2))
 
-  defp apply_primitive("<", args, _runtime), do: {:ok, chained?(args, &num_lt?/2)}
-  defp apply_primitive(">", args, _runtime), do: {:ok, chained?(args, &num_gt?/2)}
-  defp apply_primitive("<=", args, _runtime), do: {:ok, chained?(args, &num_le?/2)}
-  defp apply_primitive(">=", args, _runtime), do: {:ok, chained?(args, &num_ge?/2)}
+  defp apply_primitive("<", args, _runtime), do: chained?(args, &num_lt?/2)
+  defp apply_primitive(">", args, _runtime), do: chained?(args, &num_gt?/2)
+  defp apply_primitive("<=", args, _runtime), do: chained?(args, &num_le?/2)
+  defp apply_primitive(">=", args, _runtime), do: chained?(args, &num_ge?/2)
 
   # ---- collections ----------------------------------------------------------------
 
-  defp apply_primitive("first", [[]], _runtime), do: {:ok, nil}
-  defp apply_primitive("first", [[head | _]], _runtime), do: {:ok, head}
-  defp apply_primitive("first", [nil], _runtime), do: {:ok, nil}
-  defp apply_primitive("first", args, _runtime), do: {:error, {:invalid_args, "first", args}}
+  defp apply_primitive("first", [[]], _runtime), do: nil
+  defp apply_primitive("first", [[head | _]], _runtime), do: head
+  defp apply_primitive("first", [nil], _runtime), do: nil
 
-  defp apply_primitive("rest", [[]], _runtime), do: {:ok, []}
-  defp apply_primitive("rest", [[_head | tail]], _runtime), do: {:ok, tail}
-  defp apply_primitive("rest", [nil], _runtime), do: {:ok, []}
-  defp apply_primitive("rest", args, _runtime), do: {:error, {:invalid_args, "rest", args}}
+  defp apply_primitive("first", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "first", args})
 
-  defp apply_primitive("cons", [x, nil], _runtime), do: {:ok, [x]}
-  defp apply_primitive("cons", [x, list], _runtime) when is_list(list), do: {:ok, [x | list]}
-  defp apply_primitive("cons", args, _runtime), do: {:error, {:invalid_args, "cons", args}}
+  defp apply_primitive("rest", [[]], _runtime), do: []
+  defp apply_primitive("rest", [[_head | tail]], _runtime), do: tail
+  defp apply_primitive("rest", [nil], _runtime), do: []
 
-  defp apply_primitive("list", args, _runtime), do: {:ok, args}
+  defp apply_primitive("rest", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "rest", args})
 
-  defp apply_primitive("vector", args, _runtime), do: {:ok, Vector.new(args)}
+  defp apply_primitive("cons", [x, nil], _runtime), do: [x]
+  defp apply_primitive("cons", [x, list], _runtime) when is_list(list), do: [x | list]
+
+  defp apply_primitive("cons", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "cons", args})
+
+  defp apply_primitive("list", args, _runtime), do: args
+
+  defp apply_primitive("vector", args, _runtime), do: Vector.new(args)
 
   defp apply_primitive("to-list", [value], _runtime) do
     case to_list_value(value) do
-      {:ok, list} -> {:ok, list}
-      :error -> {:error, {:invalid_args, "to-list", [value]}}
+      {:ok, list} -> list
+      :error -> raise Logos.EvalError, reason: {:invalid_args, "to-list", [value]}
     end
   end
 
-  defp apply_primitive("to-list", args, _runtime), do: {:error, {:invalid_args, "to-list", args}}
+  defp apply_primitive("to-list", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "to-list", args})
 
   # `(apply f a b ... coll)` -- `a`/`b`/... (if any) pass through as-is,
   # `coll` (the LAST argument, any of list/vector/set/map/`nil`, coerced
@@ -189,11 +216,12 @@ defmodule Logos.Primitives do
 
     case to_list_value(coll) do
       {:ok, spread} -> Logos.Eval.apply_fn(f, fixed ++ spread, runtime)
-      :error -> {:error, {:invalid_args, "apply", [f | rest]}}
+      :error -> raise Logos.EvalError, reason: {:invalid_args, "apply", [f | rest]}
     end
   end
 
-  defp apply_primitive("apply", args, _runtime), do: {:error, {:invalid_args, "apply", args}}
+  defp apply_primitive("apply", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "apply", args})
 
   # ---- minimal construction primitives for real syntax-quote desugaring
   # (`lib/logos/reader/actions.ex`) -- desugaring a syntax-quoted form
@@ -204,38 +232,38 @@ defmodule Logos.Primitives do
 
   defp apply_primitive("concat", args, _runtime) do
     if Enum.all?(args, &concatable?/1) do
-      {:ok, args |> Enum.flat_map(&to_elixir_list/1)}
+      Enum.flat_map(args, &to_elixir_list/1)
     else
-      {:error, {:invalid_args, "concat", args}}
+      raise Logos.EvalError, reason: {:invalid_args, "concat", args}
     end
   end
 
-  defp apply_primitive("list->vector", [%Vector{} = v], _runtime), do: {:ok, v}
+  defp apply_primitive("list->vector", [%Vector{} = v], _runtime), do: v
 
   defp apply_primitive("list->vector", [list], _runtime) when is_list(list),
-    do: {:ok, Vector.new(list)}
+    do: Vector.new(list)
 
-  defp apply_primitive("list->vector", [nil], _runtime), do: {:ok, Vector.new([])}
+  defp apply_primitive("list->vector", [nil], _runtime), do: Vector.new([])
 
   defp apply_primitive("list->vector", args, _runtime),
-    do: {:error, {:invalid_args, "list->vector", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "list->vector", args})
 
   defp apply_primitive("list->map", [list], _runtime) when is_list(list) do
-    {:ok, list |> Enum.chunk_every(2) |> Enum.map(&List.to_tuple/1) |> Map.new()}
+    list |> Enum.chunk_every(2) |> Enum.map(&List.to_tuple/1) |> Map.new()
   end
 
-  defp apply_primitive("list->map", [nil], _runtime), do: {:ok, %{}}
+  defp apply_primitive("list->map", [nil], _runtime), do: %{}
 
   defp apply_primitive("list->map", args, _runtime),
-    do: {:error, {:invalid_args, "list->map", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "list->map", args})
 
   defp apply_primitive("list->set", [list], _runtime) when is_list(list),
-    do: {:ok, MapSet.new(list)}
+    do: MapSet.new(list)
 
-  defp apply_primitive("list->set", [nil], _runtime), do: {:ok, MapSet.new()}
+  defp apply_primitive("list->set", [nil], _runtime), do: MapSet.new()
 
   defp apply_primitive("list->set", args, _runtime),
-    do: {:error, {:invalid_args, "list->set", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "list->set", args})
 
   # ---- throw ------------------------------------------------------------------------
 
@@ -245,23 +273,24 @@ defmodule Logos.Primitives do
   defp apply_primitive("throw", [%Keyword{} = tag, value], _runtime),
     do: raise(Logos.Thrown, tag: tag, value: value)
 
-  defp apply_primitive("throw", args, _runtime), do: {:error, {:invalid_throw_args, args}}
+  defp apply_primitive("throw", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_throw_args, args})
 
   # ---- namespaces / Vars -------------------------------------------------------------
 
   defp apply_primitive("intern-var!", [%Symbol{ns: nil, name: name}, value], runtime) do
     ns = Logos.Runtime.current_ns(runtime)
     Namespace.intern!(runtime, ns, name, value)
-    {:ok, Symbol.new(name, ns)}
+    Symbol.new(name, ns)
   end
 
   defp apply_primitive("intern-var!", [%Symbol{ns: target_ns, name: name}, value], runtime) do
     Namespace.intern!(runtime, target_ns, name, value)
-    {:ok, Symbol.new(name, target_ns)}
+    Symbol.new(name, target_ns)
   end
 
   defp apply_primitive("intern-var!", args, _runtime),
-    do: {:error, {:invalid_args, "intern-var!", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "intern-var!", args})
 
   # `push-thread-binding!`/`pop-thread-binding!` back `core.logos`'s
   # `binding` macro -- the Elixir-side half of dynamic vars that can't be
@@ -283,15 +312,15 @@ defmodule Logos.Primitives do
          {:ok, %{meta: %{dynamic: true}}} <- Namespace.get_var_row(runtime, ns, name) do
       key = {:logos_dynamic, ns, name}
       Process.put(key, [value | Process.get(key, [])])
-      {:ok, nil}
+      nil
     else
-      {:ok, %{meta: _}} -> {:error, {:not_dynamic, Symbol.to_string(sym)}}
-      :error -> {:error, {:unbound_symbol, Symbol.to_string(sym)}}
+      {:ok, %{meta: _}} -> raise Logos.EvalError, reason: {:not_dynamic, Symbol.to_string(sym)}
+      :error -> raise Logos.EvalError, reason: {:unbound_symbol, Symbol.to_string(sym)}
     end
   end
 
   defp apply_primitive("push-thread-binding!", args, _runtime),
-    do: {:error, {:invalid_args, "push-thread-binding!", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "push-thread-binding!", args})
 
   # The counterpart pop -- `binding`'s own generated `finally` is the only
   # intended caller, where the stack can never be empty; `:no_active_binding`
@@ -305,27 +334,28 @@ defmodule Logos.Primitives do
         case Process.get(key, []) do
           [_top | rest] ->
             Process.put(key, rest)
-            {:ok, nil}
+            nil
 
           [] ->
-            {:error, {:no_active_binding, Symbol.to_string(sym)}}
+            raise Logos.EvalError, reason: {:no_active_binding, Symbol.to_string(sym)}
         end
 
       :error ->
-        {:error, {:unbound_symbol, Symbol.to_string(sym)}}
+        raise Logos.EvalError, reason: {:unbound_symbol, Symbol.to_string(sym)}
     end
   end
 
   defp apply_primitive("pop-thread-binding!", args, _runtime),
-    do: {:error, {:invalid_args, "pop-thread-binding!", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "pop-thread-binding!", args})
 
   defp apply_primitive("in-ns", [%Symbol{ns: nil, name: name}], runtime) do
     Namespace.ensure!(runtime, name)
     Logos.Runtime.set_current_ns!(runtime, name)
-    {:ok, Symbol.new(name)}
+    Symbol.new(name)
   end
 
-  defp apply_primitive("in-ns", args, _runtime), do: {:error, {:invalid_args, "in-ns", args}}
+  defp apply_primitive("in-ns", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "in-ns", args})
 
   defp apply_primitive("require", specs, runtime), do: require_specs(specs, runtime)
   defp apply_primitive("use", specs, runtime), do: use_specs(specs, runtime)
@@ -339,14 +369,15 @@ defmodule Logos.Primitives do
         local_name = dotted |> String.split(".") |> List.last()
         ns = Logos.Runtime.current_ns(runtime)
         Namespace.intern!(runtime, ns, local_name, {:host_fn, mod, fun})
-        {:ok, Symbol.new(local_name, ns)}
+        Symbol.new(local_name, ns)
 
       :error ->
-        {:error, {:not_allowlisted, dotted}}
+        raise Logos.EvalError, reason: {:not_allowlisted, dotted}
     end
   end
 
-  defp apply_primitive("import", args, _runtime), do: {:error, {:invalid_args, "import", args}}
+  defp apply_primitive("import", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "import", args})
 
   defp apply_primitive("set-macro!", [%Symbol{} = sym, flag], runtime) do
     {ns, name} = symbol_location(sym, runtime)
@@ -355,11 +386,11 @@ defmodule Logos.Primitives do
       Map.put(meta, :macro, flag != nil and flag != false)
     end)
 
-    {:ok, flag}
+    flag
   end
 
   defp apply_primitive("set-macro!", args, _runtime),
-    do: {:error, {:invalid_args, "set-macro!", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "set-macro!", args})
 
   # Uses the full resolution chain (`Logos.Eval.resolve_symbol_location/2`
   # -- current namespace's own vars, then its refers, then the implicit
@@ -370,30 +401,29 @@ defmodule Logos.Primitives do
   # `symbol_location/2`: it flags a var the caller just `def`'d in their
   # own namespace, where refer-chasing would be wrong.
   defp apply_primitive("macro?", [%Symbol{} = sym], runtime) do
-    result =
-      case Logos.Eval.resolve_symbol_location(sym, runtime) do
-        {:ok, {ns, name}} ->
-          case Namespace.get_var_row(runtime, ns, name) do
-            {:ok, %{meta: meta}} -> meta[:macro] == true
-            :error -> false
-          end
+    case Logos.Eval.resolve_symbol_location(sym, runtime) do
+      {:ok, {ns, name}} ->
+        case Namespace.get_var_row(runtime, ns, name) do
+          {:ok, %{meta: meta}} -> meta[:macro] == true
+          :error -> false
+        end
 
-        :error ->
-          false
-      end
-
-    {:ok, result}
+      :error ->
+        false
+    end
   end
 
-  defp apply_primitive("macro?", args, _runtime), do: {:error, {:invalid_args, "macro?", args}}
+  defp apply_primitive("macro?", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "macro?", args})
 
   defp apply_primitive("gensym", [], runtime),
-    do: {:ok, Symbol.new(Logos.Runtime.next_gensym(runtime))}
+    do: Symbol.new(Logos.Runtime.next_gensym(runtime))
 
   defp apply_primitive("gensym", [prefix], runtime) when is_binary(prefix),
-    do: {:ok, Symbol.new(Logos.Runtime.next_gensym(runtime, prefix))}
+    do: Symbol.new(Logos.Runtime.next_gensym(runtime, prefix))
 
-  defp apply_primitive("gensym", args, _runtime), do: {:error, {:invalid_args, "gensym", args}}
+  defp apply_primitive("gensym", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "gensym", args})
 
   # ---- metaprogramming: with-meta / var-doc ------------------------------------
 
@@ -405,10 +435,10 @@ defmodule Logos.Primitives do
   # symbol private.
   defp apply_primitive("with-meta", [%Symbol{} = sym, meta_map], _runtime)
        when is_map(meta_map) and not is_struct(meta_map),
-       do: {:ok, %{sym | meta: meta_map}}
+       do: %{sym | meta: meta_map}
 
   defp apply_primitive("with-meta", args, _runtime),
-    do: {:error, {:invalid_args, "with-meta", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "with-meta", args})
 
   # `with-meta`'s read-side counterpart: the symbol *value*'s own
   # `^meta`/`with-meta`-attached metadata, defaulting to `%{}` (a
@@ -423,34 +453,36 @@ defmodule Logos.Primitives do
   # live in the namespace registry, a different piece of state entirely;
   # `(meta 'some-defd-name)` on a bare, unquoted symbol with no `^meta`
   # of its own returns `{}`, not that Var's metadata.
-  defp apply_primitive("meta", [%Symbol{meta: meta}], _runtime), do: {:ok, meta}
-  defp apply_primitive("meta", [_non_symbol], _runtime), do: {:ok, nil}
-  defp apply_primitive("meta", args, _runtime), do: {:error, {:invalid_args, "meta", args}}
+  defp apply_primitive("meta", [%Symbol{meta: meta}], _runtime), do: meta
+  defp apply_primitive("meta", [_non_symbol], _runtime), do: nil
+
+  defp apply_primitive("meta", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "meta", args})
 
   # Backs the `doc` macro (`core.logos`): resolves `sym` through the same
   # full chain `macro?` uses above, and returns its `:doc` metadata (set
   # by `def`'s own optional docstring argument, `Logos.Eval.eval_def/5`)
   # or `nil` if unresolvable/undocumented.
   defp apply_primitive("var-doc", [%Symbol{} = sym], runtime) do
-    result =
-      with {:ok, {ns, name}} <- Logos.Eval.resolve_symbol_location(sym, runtime),
-           {:ok, %{meta: meta}} <- Namespace.get_var_row(runtime, ns, name) do
-        Map.get(meta, :doc)
-      else
-        _ -> nil
-      end
-
-    {:ok, result}
+    with {:ok, {ns, name}} <- Logos.Eval.resolve_symbol_location(sym, runtime),
+         {:ok, %{meta: meta}} <- Namespace.get_var_row(runtime, ns, name) do
+      Map.get(meta, :doc)
+    else
+      _ -> nil
+    end
   end
 
-  defp apply_primitive("var-doc", args, _runtime), do: {:error, {:invalid_args, "var-doc", args}}
+  defp apply_primitive("var-doc", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "var-doc", args})
 
   # Needed by `defn`/`defmacro` (`core.logos`) to detect an optional
   # leading docstring argument (`(defn name "doc" [params] body...)`) at
   # macro-expansion time, with only `cond` -- a real special form,
   # available before any stdlib file loads -- to branch on.
-  defp apply_primitive("string?", [s], _runtime), do: {:ok, type_tag(s) == :string}
-  defp apply_primitive("string?", args, _runtime), do: {:error, {:invalid_args, "string?", args}}
+  defp apply_primitive("string?", [s], _runtime), do: type_tag(s) == :string
+
+  defp apply_primitive("string?", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "string?", args})
 
   # Clojure's own `str`: `nil` stringifies to `""` and a string passes
   # through bare (unlike `Logos.Printer.print/1`, which would quote it
@@ -458,7 +490,7 @@ defmodule Logos.Primitives do
   # this value," `str` answers "what should a human see"), every other
   # value reuses `Logos.Printer.print/1` (already produces `":kw"`/`"42"`/
   # `"[1 2]"` etc.) rather than reimplementing per-type stringification.
-  defp apply_primitive("str", args, _runtime), do: {:ok, Enum.map_join(args, "", &stringify/1)}
+  defp apply_primitive("str", args, _runtime), do: Enum.map_join(args, "", &stringify/1)
 
   # Clojure's own `keyword`: builds a keyword from a string (`(keyword
   # "a")` => `:a`, `(keyword "ns" "x")` => `:ns/x`) or from a symbol's
@@ -468,18 +500,19 @@ defmodule Logos.Primitives do
   # keywords `:a`/`:b` to `get` them by, with no other way to ask "what
   # string is this symbol's own name" from pure Logos.
   defp apply_primitive("keyword", [%Symbol{ns: nil, name: name}], _runtime),
-    do: {:ok, Keyword.intern(name)}
+    do: Keyword.intern(name)
 
   defp apply_primitive("keyword", [%Symbol{ns: ns, name: name}], _runtime),
-    do: {:ok, Keyword.intern(ns <> "/" <> name)}
+    do: Keyword.intern(ns <> "/" <> name)
 
   defp apply_primitive("keyword", [name], _runtime) when is_binary(name),
-    do: {:ok, Keyword.intern(name)}
+    do: Keyword.intern(name)
 
   defp apply_primitive("keyword", [ns, name], _runtime) when is_binary(ns) and is_binary(name),
-    do: {:ok, Keyword.intern(ns <> "/" <> name)}
+    do: Keyword.intern(ns <> "/" <> name)
 
-  defp apply_primitive("keyword", args, _runtime), do: {:error, {:invalid_args, "keyword", args}}
+  defp apply_primitive("keyword", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "keyword", args})
 
   # `symbol`'s counterpart to `keyword` -- builds a fresh, unqualified-or-
   # qualified *symbol* value from a string (`(symbol "a")` => `` 'a ``,
@@ -489,12 +522,13 @@ defmodule Logos.Primitives do
   # new symbol from computed text (unlike `with-meta`, which only
   # attaches metadata to a symbol that already exists).
   defp apply_primitive("symbol", [name], _runtime) when is_binary(name),
-    do: {:ok, Symbol.new(name)}
+    do: Symbol.new(name)
 
   defp apply_primitive("symbol", [ns, name], _runtime) when is_binary(ns) and is_binary(name),
-    do: {:ok, Symbol.new(name, ns)}
+    do: Symbol.new(name, ns)
 
-  defp apply_primitive("symbol", args, _runtime), do: {:error, {:invalid_args, "symbol", args}}
+  defp apply_primitive("symbol", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "symbol", args})
 
   # `type-of` is the ONE primitive backing every other type predicate
   # (`nil?`/`list?`/`vector?`/`map?`/`set?`/`number?`, all pure Logos --
@@ -510,12 +544,13 @@ defmodule Logos.Primitives do
   # assign every plain map. This one clause is what makes `type-of` a
   # uniform protocol-dispatch key across both records and every built-in
   # type -- see `defprotocol`/`extend-type` (`priv/stdlib/multimethod.logos`).
-  defp apply_primitive("type-of", [%Logos.Record{type: type}], _runtime), do: {:ok, type}
+  defp apply_primitive("type-of", [%Logos.Record{type: type}], _runtime), do: type
 
   defp apply_primitive("type-of", [x], _runtime),
-    do: {:ok, Keyword.intern(Atom.to_string(type_tag(x)))}
+    do: Keyword.intern(Atom.to_string(type_tag(x)))
 
-  defp apply_primitive("type-of", args, _runtime), do: {:error, {:invalid_args, "type-of", args}}
+  defp apply_primitive("type-of", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "type-of", args})
 
   # `record`/`current-ns` back `core.logos`'s `defrecord` macro. `record`
   # is Elixir-side of necessity -- building a `%Logos.Record{}` isn't
@@ -530,14 +565,15 @@ defmodule Logos.Primitives do
   # current namespace name to Lisp code.
   defp apply_primitive("record", [%Keyword{} = type, fields], _runtime)
        when is_map(fields) and not is_struct(fields),
-       do: {:ok, Logos.Record.new(type, fields)}
+       do: Logos.Record.new(type, fields)
 
-  defp apply_primitive("record", args, _runtime), do: {:error, {:invalid_args, "record", args}}
+  defp apply_primitive("record", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "record", args})
 
-  defp apply_primitive("current-ns", [], runtime), do: {:ok, Logos.Runtime.current_ns(runtime)}
+  defp apply_primitive("current-ns", [], runtime), do: Logos.Runtime.current_ns(runtime)
 
   defp apply_primitive("current-ns", args, _runtime),
-    do: {:error, {:invalid_args, "current-ns", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "current-ns", args})
 
   # ---- logos.map: get / assoc / dissoc -----------------------------------------
   # Plain Elixir maps only (what `{...}` literals already reify to, see
@@ -551,22 +587,24 @@ defmodule Logos.Primitives do
   # complexity, out of scope for this first pass).
 
   defp apply_primitive("get", [%Logos.Record{fields: fields}, key], _runtime),
-    do: {:ok, Map.get(fields, key)}
+    do: Map.get(fields, key)
 
   defp apply_primitive("get", [%Logos.Record{fields: fields}, key, default], _runtime),
-    do: {:ok, Map.get(fields, key, default)}
+    do: Map.get(fields, key, default)
 
   defp apply_primitive("get", [map, key], _runtime) when is_map(map) and not is_struct(map),
-    do: {:ok, Map.get(map, key)}
+    do: Map.get(map, key)
 
-  defp apply_primitive("get", [nil, _key], _runtime), do: {:ok, nil}
+  defp apply_primitive("get", [nil, _key], _runtime), do: nil
 
   defp apply_primitive("get", [map, key, default], _runtime)
        when is_map(map) and not is_struct(map),
-       do: {:ok, Map.get(map, key, default)}
+       do: Map.get(map, key, default)
 
-  defp apply_primitive("get", [nil, _key, default], _runtime), do: {:ok, default}
-  defp apply_primitive("get", args, _runtime), do: {:error, {:invalid_args, "get", args}}
+  defp apply_primitive("get", [nil, _key, default], _runtime), do: default
+
+  defp apply_primitive("get", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "get", args})
 
   defp apply_primitive(
          "assoc",
@@ -576,87 +614,101 @@ defmodule Logos.Primitives do
     case chunk_pairs([key, value | rest]) do
       {:ok, pairs} ->
         new_fields = Enum.reduce(pairs, fields, fn {k, v}, acc -> Map.put(acc, k, v) end)
-        {:ok, %{record | fields: new_fields}}
+        %{record | fields: new_fields}
 
       :error ->
-        {:error, {:invalid_args, "assoc", [record, key, value | rest]}}
+        raise Logos.EvalError, reason: {:invalid_args, "assoc", [record, key, value | rest]}
     end
   end
 
   defp apply_primitive("assoc", [map, key, value | rest], _runtime) do
     with {:ok, base} <- as_assoc_target(map),
          {:ok, pairs} <- chunk_pairs([key, value | rest]) do
-      {:ok, Enum.reduce(pairs, base, fn {k, v}, acc -> Map.put(acc, k, v) end)}
+      Enum.reduce(pairs, base, fn {k, v}, acc -> Map.put(acc, k, v) end)
     else
-      :error -> {:error, {:invalid_args, "assoc", [map, key, value | rest]}}
+      :error -> raise Logos.EvalError, reason: {:invalid_args, "assoc", [map, key, value | rest]}
     end
   end
 
-  defp apply_primitive("assoc", args, _runtime), do: {:error, {:invalid_args, "assoc", args}}
+  defp apply_primitive("assoc", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "assoc", args})
 
   defp apply_primitive("dissoc", [map | keys], _runtime) do
     case as_assoc_target(map) do
-      {:ok, base} -> {:ok, Map.drop(base, keys)}
-      :error -> {:error, {:invalid_args, "dissoc", [map | keys]}}
+      {:ok, base} -> Map.drop(base, keys)
+      :error -> raise Logos.EvalError, reason: {:invalid_args, "dissoc", [map | keys]}
     end
   end
 
-  defp apply_primitive("dissoc", args, _runtime), do: {:error, {:invalid_args, "dissoc", args}}
+  defp apply_primitive("dissoc", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "dissoc", args})
 
   # ---- concurrency (dispatches to Logos.Process -- see that module for the real BEAM mechanics) --
 
-  defp apply_primitive("spawn", [%Logos.Fn{} = f], runtime), do: {:ok, LProcess.spawn(f, runtime)}
-  defp apply_primitive("spawn", args, _runtime), do: {:error, {:invalid_args, "spawn", args}}
+  defp apply_primitive("spawn", [%Logos.Fn{} = f], runtime), do: LProcess.spawn(f, runtime)
+
+  defp apply_primitive("spawn", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "spawn", args})
 
   defp apply_primitive("spawn-link", [%Logos.Fn{} = f], runtime),
-    do: {:ok, LProcess.spawn_link(f, runtime)}
+    do: LProcess.spawn_link(f, runtime)
 
   defp apply_primitive("spawn-link", args, _runtime),
-    do: {:error, {:invalid_args, "spawn-link", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "spawn-link", args})
 
   defp apply_primitive("spawn-monitor", [%Logos.Fn{} = f], runtime),
-    do: {:ok, LProcess.spawn_monitor(f, runtime)}
+    do: LProcess.spawn_monitor(f, runtime)
 
   defp apply_primitive("spawn-monitor", args, _runtime),
-    do: {:error, {:invalid_args, "spawn-monitor", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "spawn-monitor", args})
 
-  defp apply_primitive("link", [%Logos.Pid{} = p], _runtime), do: {:ok, LProcess.link(p)}
-  defp apply_primitive("link", args, _runtime), do: {:error, {:invalid_args, "link", args}}
+  defp apply_primitive("link", [%Logos.Pid{} = p], _runtime), do: LProcess.link(p)
 
-  defp apply_primitive("unlink", [%Logos.Pid{} = p], _runtime), do: {:ok, LProcess.unlink(p)}
-  defp apply_primitive("unlink", args, _runtime), do: {:error, {:invalid_args, "unlink", args}}
+  defp apply_primitive("link", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "link", args})
 
-  defp apply_primitive("monitor", [%Logos.Pid{} = p], _runtime), do: {:ok, LProcess.monitor(p)}
-  defp apply_primitive("monitor", args, _runtime), do: {:error, {:invalid_args, "monitor", args}}
+  defp apply_primitive("unlink", [%Logos.Pid{} = p], _runtime), do: LProcess.unlink(p)
+
+  defp apply_primitive("unlink", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "unlink", args})
+
+  defp apply_primitive("monitor", [%Logos.Pid{} = p], _runtime), do: LProcess.monitor(p)
+
+  defp apply_primitive("monitor", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "monitor", args})
 
   defp apply_primitive("demonitor", [{:logos_ref, _} = ref], _runtime),
-    do: {:ok, LProcess.demonitor(ref)}
+    do: LProcess.demonitor(ref)
 
   defp apply_primitive("demonitor", args, _runtime),
-    do: {:error, {:invalid_args, "demonitor", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "demonitor", args})
 
   defp apply_primitive("trap-exits!", [flag], _runtime),
-    do: {:ok, LProcess.trap_exits!(truthy_flag(flag))}
+    do: LProcess.trap_exits!(truthy_flag(flag))
 
   defp apply_primitive("trap-exits!", args, _runtime),
-    do: {:error, {:invalid_args, "trap-exits!", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "trap-exits!", args})
 
   defp apply_primitive("exit", [], _runtime), do: LProcess.exit_self(nil)
   defp apply_primitive("exit", [reason], _runtime), do: LProcess.exit_self(reason)
 
   defp apply_primitive("exit", [%Logos.Pid{} = p, reason], _runtime),
-    do: {:ok, LProcess.exit_pid(p, reason)}
+    do: LProcess.exit_pid(p, reason)
 
-  defp apply_primitive("exit", args, _runtime), do: {:error, {:invalid_args, "exit", args}}
+  defp apply_primitive("exit", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "exit", args})
 
-  defp apply_primitive("self", [], _runtime), do: {:ok, LProcess.self()}
-  defp apply_primitive("self", args, _runtime), do: {:error, {:invalid_args, "self", args}}
+  defp apply_primitive("self", [], _runtime), do: LProcess.self()
+
+  defp apply_primitive("self", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "self", args})
 
   defp apply_primitive("send", [target, msg], _runtime)
        when is_struct(target, Logos.Pid) or is_struct(target, Logos.Atom),
-       do: {:ok, LProcess.send(target, msg)}
+       do: LProcess.send(target, msg)
 
-  defp apply_primitive("send", args, _runtime), do: {:error, {:invalid_args, "send", args}}
+  defp apply_primitive("send", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "send", args})
 
   defp apply_primitive("receive-match!", [pred, handler], runtime),
     do: LProcess.receive_match!(pred, handler, runtime)
@@ -665,13 +717,13 @@ defmodule Logos.Primitives do
     do: LProcess.receive_match!(pred, handler, timeout, default, runtime)
 
   defp apply_primitive("receive-match!", args, _runtime),
-    do: {:error, {:invalid_args, "receive-match!", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "receive-match!", args})
 
   defp apply_primitive("pid->atom", [%Logos.Pid{pid: pid}], _runtime),
-    do: {:ok, Logos.Atom.new(pid)}
+    do: Logos.Atom.new(pid)
 
   defp apply_primitive("pid->atom", args, _runtime),
-    do: {:error, {:invalid_args, "pid->atom", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "pid->atom", args})
 
   # A `:DOWN`/`:EXIT` message's `reason` (the last element of the
   # normalized list `Logos.Process` hands `receive` -- see that module's
@@ -682,10 +734,10 @@ defmodule Logos.Primitives do
   # a `Logos.Keyword`, a different, non-`==` type) -- this primitive is
   # the deliberate, narrow escape hatch for exactly that one comparison,
   # rather than exposing raw atom construction generally.
-  defp apply_primitive("normal-exit?", [reason], _runtime), do: {:ok, reason == :normal}
+  defp apply_primitive("normal-exit?", [reason], _runtime), do: reason == :normal
 
   defp apply_primitive("normal-exit?", args, _runtime),
-    do: {:error, {:invalid_args, "normal-exit?", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "normal-exit?", args})
 
   # ---- dev tooling / introspection primitives ----------------------------------------
 
@@ -693,10 +745,10 @@ defmodule Logos.Primitives do
   # `System.argv()`. Backed by `Logos.Runtime.argv/1` -- see that
   # function's doc for who sets it (`Mix.Tasks.Logos.Run`).
   defp apply_primitive("system-argv", [], runtime),
-    do: {:ok, Vector.new(Logos.Runtime.argv(runtime))}
+    do: Vector.new(Logos.Runtime.argv(runtime))
 
   defp apply_primitive("system-argv", args, _runtime),
-    do: {:error, {:invalid_args, "system-argv", args}}
+    do: raise(Logos.EvalError, reason: {:invalid_args, "system-argv", args})
 
   # `(ns-list)` / `(ns-vars ns-name)` -- REPL-oriented namespace
   # introspection. Both take and return plain Logos **strings**, not
@@ -706,15 +758,16 @@ defmodule Logos.Primitives do
   # additionally accepts an unqualified symbol as a convenience for
   # interactive use (e.g. `(ns-vars 'user)`).
   defp apply_primitive("ns-list", [], runtime) do
-    {:ok, Namespace.all(runtime) |> Enum.sort()}
+    Namespace.all(runtime) |> Enum.sort()
   end
 
-  defp apply_primitive("ns-list", args, _runtime), do: {:error, {:invalid_args, "ns-list", args}}
+  defp apply_primitive("ns-list", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "ns-list", args})
 
   defp apply_primitive("ns-vars", [name], runtime) when is_binary(name) do
     case Namespace.row(runtime, name) do
-      {:ok, row} -> {:ok, row.var_names |> MapSet.to_list() |> Enum.sort()}
-      :error -> {:ok, []}
+      {:ok, row} -> row.var_names |> MapSet.to_list() |> Enum.sort()
+      :error -> []
     end
   end
 
@@ -723,9 +776,11 @@ defmodule Logos.Primitives do
   defp apply_primitive("ns-vars", [%Symbol{ns: nil, name: name}], runtime),
     do: apply_primitive("ns-vars", [name], runtime)
 
-  defp apply_primitive("ns-vars", args, _runtime), do: {:error, {:invalid_args, "ns-vars", args}}
+  defp apply_primitive("ns-vars", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "ns-vars", args})
 
-  defp apply_primitive(name, args, _runtime), do: {:error, {:unknown_primitive, name, args}}
+  defp apply_primitive(name, args, _runtime),
+    do: raise(Logos.EvalError, reason: {:unknown_primitive, name, args})
 
   # Logos truthiness for `trap-exits!`'s flag arg: only `nil`/`false` are
   # falsy, everything else (including `0`/`""`) is truthy.
@@ -766,38 +821,37 @@ defmodule Logos.Primitives do
     end)
   end
 
+  # A raise from `one_spec/3` propagates immediately, aborting the rest --
+  # matches the previous `Enum.reduce_while`'s "stop at first error"
+  # behavior now that failure is raise-based.
   defp each_spec(specs, runtime, after_load) do
-    Enum.reduce_while(specs, {:ok, nil}, fn spec, _acc ->
-      case one_spec(spec, runtime, after_load) do
-        {:ok, _} = ok -> {:cont, ok}
-        {:error, _} = err -> {:halt, err}
-      end
-    end)
+    specs
+    |> Enum.map(fn spec -> one_spec(spec, runtime, after_load) end)
+    |> List.last()
   end
 
   defp one_spec(%Symbol{ns: nil, name: ns_name}, runtime, after_load) do
-    with :ok <- load_ns!(runtime, ns_name) do
-      after_load.(ns_name)
-      {:ok, Symbol.new(ns_name)}
-    end
+    load_ns!(runtime, ns_name)
+    after_load.(ns_name)
+    Symbol.new(ns_name)
   end
 
   defp one_spec(%Vector{} = vec, runtime, after_load) do
     case Vector.to_list(vec) do
       [%Symbol{ns: nil, name: ns_name} | opts] ->
-        with :ok <- load_ns!(runtime, ns_name) do
-          current = Logos.Runtime.current_ns(runtime)
-          apply_spec_opts(runtime, current, ns_name, opts)
-          after_load.(ns_name)
-          {:ok, Symbol.new(ns_name)}
-        end
+        load_ns!(runtime, ns_name)
+        current = Logos.Runtime.current_ns(runtime)
+        apply_spec_opts(runtime, current, ns_name, opts)
+        after_load.(ns_name)
+        Symbol.new(ns_name)
 
       other ->
-        {:error, {:invalid_require_spec, other}}
+        raise Logos.EvalError, reason: {:invalid_require_spec, other}
     end
   end
 
-  defp one_spec(other, _runtime, _after_load), do: {:error, {:invalid_require_spec, other}}
+  defp one_spec(other, _runtime, _after_load),
+    do: raise(Logos.EvalError, reason: {:invalid_require_spec, other})
 
   defp apply_spec_opts(_runtime, _current, _ns_name, []), do: :ok
 
@@ -849,7 +903,7 @@ defmodule Logos.Primitives do
   # Checking `loading?` first makes `Logos.Runtime`'s `:loading` set (see
   # `start_loading!/2`/`finish_loading!/2`) the same kind of "still being
   # loaded, not yet complete" tracking, so a real cycle instead resolves
-  # to `{:error, {:circular_require, ns_name}}`.
+  # to a raised `{:circular_require, ns_name}`.
   #
   # Once neither of those apply, an already-loaded namespace (`logos.core`
   # itself, or anything a test/script has already loaded, unrelated to
@@ -861,7 +915,7 @@ defmodule Logos.Primitives do
   defp load_ns!(runtime, ns_name) do
     cond do
       Logos.Runtime.loading?(runtime, ns_name) ->
-        {:error, {:circular_require, ns_name}}
+        raise Logos.EvalError, reason: {:circular_require, ns_name}
 
       Namespace.exists?(runtime, ns_name) ->
         :ok
@@ -875,8 +929,8 @@ defmodule Logos.Primitives do
               Logos.Runtime.finish_loading!(runtime, ns_name)
             end
 
-          {:error, _} = circular ->
-            circular
+          {:error, reason} ->
+            raise Logos.EvalError, reason: reason
         end
     end
   end
@@ -928,12 +982,15 @@ defmodule Logos.Primitives do
   defp load_ns_from_disk!(runtime, ns_name) do
     case find_ns_file(runtime, ns_name) do
       nil ->
-        {:error, {:namespace_not_loaded, ns_name}}
+        raise Logos.EvalError, reason: {:namespace_not_loaded, ns_name}
 
       path ->
         case File.read(path) do
-          {:ok, source} -> eval_ns_file!(runtime, ns_name, path, source)
-          {:error, reason} -> {:error, {:cannot_read_ns_file, ns_name, path, reason}}
+          {:ok, source} ->
+            eval_ns_file!(runtime, ns_name, path, source)
+
+          {:error, reason} ->
+            raise Logos.EvalError, reason: {:cannot_read_ns_file, ns_name, path, reason}
         end
     end
   end
@@ -946,21 +1003,19 @@ defmodule Logos.Primitives do
   defp eval_ns_file!(runtime, ns_name, path, source) do
     saved_ns = Logos.Runtime.current_ns(runtime)
 
-    result =
+    try do
       case Logos.eval_string_sequence(source, runtime) do
         {:ok, _value, _env} ->
-          if Namespace.exists?(runtime, ns_name) do
-            :ok
-          else
-            {:error, {:ns_file_missing_ns, ns_name, path}}
+          unless Namespace.exists?(runtime, ns_name) do
+            raise Logos.EvalError, reason: {:ns_file_missing_ns, ns_name, path}
           end
 
-        {:error, _} = error ->
-          error
+        {:error, reason} ->
+          raise Logos.EvalError, reason: reason
       end
-
-    Logos.Runtime.set_current_ns!(runtime, saved_ns)
-    result
+    after
+      Logos.Runtime.set_current_ns!(runtime, saved_ns)
+    end
   end
 
   # Resolves a `Symbol` (from `set-macro!`/`macro?`) to the concrete
@@ -1063,21 +1118,20 @@ defmodule Logos.Primitives do
   # `num_mul/2` below, both ratio-aware.
   defp numeric_reduce(args, start, fun) do
     if Enum.all?(args, &number?/1) do
-      {:ok, Enum.reduce(args, start, fun)}
+      Enum.reduce(args, start, fun)
     else
-      {:error, {:not_a_number, args}}
+      raise Logos.EvalError, reason: {:not_a_number, args}
     end
   end
 
-  # Threads `{:ok, acc} | {:error, _}` through a left-to-right `/` reduction
-  # so a division-by-zero partway through short-circuits the rest.
-  defp divide_step(x, {:ok, acc}), do: divide(acc, x)
-  defp divide_step(_x, {:error, _} = error), do: error
+  # Left-to-right `/` reduction -- a division-by-zero partway through
+  # raises immediately via `divide/2`, aborting the rest of the reduce.
+  defp divide_step(x, acc), do: divide(acc, x)
 
-  defp divide(_a, 0), do: {:error, :division_by_zero}
+  defp divide(_a, 0), do: raise(Logos.EvalError, reason: :division_by_zero)
   # Two integers divide to an exact `Logos.Ratio`, not a float -- division
   # is kept lossless unless a float operand is involved.
-  defp divide(a, b) when is_integer(a) and is_integer(b), do: {:ok, Ratio.new(a, b)}
+  defp divide(a, b) when is_integer(a) and is_integer(b), do: Ratio.new(a, b)
 
   # ---- decimal (checked before ratio/float; a %Decimal{} zero divisor
   # needs decimal_div/2's own check below -- the literal-`0` clause above
@@ -1087,42 +1141,42 @@ defmodule Logos.Primitives do
   defp divide(a, %Decimal{} = b) when is_integer(a), do: decimal_div(Decimal.new(a), b)
   defp divide(%Decimal{} = a, %Ratio{} = b), do: decimal_div(a, ratio_to_decimal(b))
   defp divide(%Ratio{} = a, %Decimal{} = b), do: decimal_div(ratio_to_decimal(a), b)
-  defp divide(%Decimal{} = a, b) when is_float(b), do: {:ok, decimal_to_float(a) / b}
-  defp divide(a, %Decimal{} = b) when is_float(a), do: {:ok, a / decimal_to_float(b)}
+  defp divide(%Decimal{} = a, b) when is_float(b), do: decimal_to_float(a) / b
+  defp divide(a, %Decimal{} = b) when is_float(a), do: a / decimal_to_float(b)
 
   # An operand that is *already* a `%Logos.Ratio{}` (e.g. dividing the
   # result of an earlier `/` call further, `(/ (/ 1 3) 2)`) cross-
   # multiplies against the other operand rather than falling through to
   # `is_integer/1`/`is_number/1` guards that don't recognize it -- this
   # was a real, previously-documented gap (see CHANGELOG).
-  defp divide(%Ratio{} = a, b) when is_integer(b), do: {:ok, Ratio.new(a.num, a.den * b)}
-  defp divide(a, %Ratio{} = b) when is_integer(a), do: {:ok, Ratio.new(a * b.den, b.num)}
+  defp divide(%Ratio{} = a, b) when is_integer(b), do: Ratio.new(a.num, a.den * b)
+  defp divide(a, %Ratio{} = b) when is_integer(a), do: Ratio.new(a * b.den, b.num)
 
   defp divide(%Ratio{} = a, %Ratio{} = b),
-    do: {:ok, Ratio.new(a.num * b.den, a.den * b.num)}
+    do: Ratio.new(a.num * b.den, a.den * b.num)
 
   # Ratio + float -> float ("float poisons everything", see num_add/2's
   # own comment) -- a real, separate latent gap found while adding
   # decimal support: this clause simply didn't exist before, so
   # `(/ 1/3 1.5)` fell through to the generic `is_number/2` guard below,
   # which `%Logos.Ratio{}` never satisfies, erroring `{:not_a_number, _}`.
-  defp divide(%Ratio{} = a, b) when is_float(b), do: {:ok, ratio_to_float(a) / b}
-  defp divide(a, %Ratio{} = b) when is_float(a), do: {:ok, a / ratio_to_float(b)}
+  defp divide(%Ratio{} = a, b) when is_float(b), do: ratio_to_float(a) / b
+  defp divide(a, %Ratio{} = b) when is_float(a), do: a / ratio_to_float(b)
 
-  defp divide(a, b) when is_number(a) and is_number(b), do: {:ok, a / b}
-  defp divide(a, b), do: {:error, {:not_a_number, [a, b]}}
+  defp divide(a, b) when is_number(a) and is_number(b), do: a / b
+  defp divide(a, b), do: raise(Logos.EvalError, reason: {:not_a_number, [a, b]})
 
   # `Decimal.div/2` itself raises `Decimal.Error` on a zero divisor --
-  # checked explicitly first instead, matching the `{:error,
-  # :division_by_zero}` convention every other zero-divisor path here
-  # already uses (a %Decimal{} zero, e.g. reader-produced `0M`, is a
-  # *different* value than the literal integer `0` `divide/2`'s own first
-  # clause already guards against).
+  # checked explicitly first instead, matching the `division_by_zero`
+  # convention every other zero-divisor path here already uses (a
+  # %Decimal{} zero, e.g. reader-produced `0M`, is a *different* value
+  # than the literal integer `0` `divide/2`'s own first clause already
+  # guards against).
   defp decimal_div(a, b) do
     if decimal_zero?(b) do
-      {:error, :division_by_zero}
+      raise Logos.EvalError, reason: :division_by_zero
     else
-      {:ok, Decimal.div(a, b)}
+      Decimal.div(a, b)
     end
   end
 

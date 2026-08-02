@@ -13,8 +13,20 @@ defmodule Logos.EvalTest do
 
   defp new_rt, do: Logos.new_runtime()
 
+  # `Logos.Eval.eval/3` itself now returns the value directly, raising
+  # `Logos.EvalError`/`Logos.Thrown` on failure (see that module's
+  # moduledoc) -- this helper converts back to the `{:ok, value} |
+  # {:error, reason}` shape every test in this file was written against,
+  # the same conversion `Logos`'s own outermost `eval_catching_errors/3`
+  # boundary does for the public API, so the tests below stay a
+  # faithful, readable spec of `eval/3`'s observable behavior without
+  # needing to know about the internal raise/rescue propagation
+  # mechanism.
   defp eval!(source, env \\ Env.new(), runtime \\ new_rt()) do
-    Eval.eval(read!(source), env, runtime)
+    {:ok, Eval.eval(read!(source), env, runtime)}
+  rescue
+    e in Logos.EvalError -> {:error, e.reason}
+    e in Logos.Thrown -> {:error, {:uncaught_throw, e.tag, e.value}}
   end
 
   # ---- quote ------------------------------------------------------------------
@@ -273,6 +285,74 @@ defmodule Logos.EvalTest do
 
       assert {:ok, "boom"} = eval!(source, Env.new(), runtime)
       assert {:ok, true} = eval!("eval-test-nested-inner-finally", Env.new(), runtime)
+    end
+  end
+
+  # ---- try/catch of primitive-level failures (Logos.EvalError) ------------------
+  # ROADMAP.md's first Tier 3 item: `try`/`catch` can now catch a
+  # primitive-level failure (division by zero, an unbound symbol, ...),
+  # not only an explicit `(throw ...)` -- see `Logos.Eval`'s moduledoc
+  # and `eval_try/3`'s own comment for the full design (tag derivation,
+  # the `:error` wildcard, why the caught value is a string).
+
+  describe "try/catch of primitive-level failures" do
+    test "an exact-tag catch clause catches a primitive-level failure, binding a string message" do
+      assert {:ok, msg} = eval!(~S[(try (/ 1 0) (catch :division-by-zero e e))])
+      assert msg =~ "division_by_zero"
+    end
+
+    test "the derived tag underscores->hyphens a bare-atom reason" do
+      assert {:ok, :caught} = eval_kw(~S[(try (quot 1 0) (catch :division-by-zero e :caught))])
+    end
+
+    test "a tuple-shaped reason derives its tag from the tuple's own head atom" do
+      assert {:ok, :caught} =
+               eval_kw(~S[(try eval-test-totally-unbound (catch :unbound-symbol e :caught))])
+    end
+
+    test "a catch clause literally tagged :error is a wildcard, catching any primitive-level failure" do
+      assert {:ok, :caught} = eval_kw(~S[(try (/ 1 0) (catch :error e :caught))])
+
+      assert {:ok, :caught} =
+               eval_kw(~S[(try eval-test-totally-unbound-2 (catch :error e :caught))])
+    end
+
+    test "a non-matching exact-tag catch does not swallow the failure -- it still propagates" do
+      assert {:error, :division_by_zero} =
+               eval!(~S[(try (/ 1 0) (catch :some-other-tag e e))])
+    end
+
+    test "uncaught (no try at all), the public API still returns the exact same {:error, reason} shape as before" do
+      assert {:error, :division_by_zero} = Logos.eval_string(~S[(/ 1 0)])
+      assert {:error, {:unbound_symbol, "eval-test-nope"}} = Logos.eval_string("eval-test-nope")
+    end
+
+    test "finally still runs on the primitive-level-failure path, caught or not" do
+      runtime = new_rt()
+
+      assert {:ok, :caught} =
+               eval_kw(
+                 ~S[(try (/ 1 0) (catch :division-by-zero e :caught) (finally (def eval-test-pf-finally-caught true)))],
+                 runtime
+               )
+
+      assert {:ok, true} = eval!("eval-test-pf-finally-caught", Env.new(), runtime)
+
+      assert {:error, :division_by_zero} =
+               eval!(
+                 ~S[(try (/ 1 0) (finally (def eval-test-pf-finally-uncaught true)))],
+                 Env.new(),
+                 runtime
+               )
+
+      assert {:ok, true} = eval!("eval-test-pf-finally-uncaught", Env.new(), runtime)
+    end
+
+    test "an explicit (throw ...) is still only caught by its exact tag -- the :error wildcard does not catch it" do
+      assert {:error, {:uncaught_throw, _tag, "payload"}} =
+               Logos.eval_string(
+                 ~S[(try (throw :eval-test-explicit "payload") (catch :error e e))]
+               )
     end
   end
 
