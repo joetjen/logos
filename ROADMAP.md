@@ -158,22 +158,24 @@ comparison chains already exist and can be reused).
       the same known trap `into`/`frequencies` already had to work
       around).
 
-- [ ] **Protocols and records** (`defprotocol`/`deftype`/`defrecord`).
-      Deferred from the multimethods item above, on purpose -- this
-      needs its own answer to a question multimethods never raised:
-      *what does a user-defined Logos type/instance actually look
-      like?* `type-of` today only returns a fixed set of built-in tags;
-      there's no mechanism for user code to mint a new one yet. Two
-      routes, still open: (a) plain maps carrying a conventional `:type`
-      key (e.g. `{:type :point :x 1 :y 2}`), no interpreter changes --
-      protocol dispatch then becomes multimethod dispatch keyed on
-      `(:type x)`, i.e. sugar over the multimethod machinery that
-      already exists now, not a parallel mechanism; or (b) a genuine new
-      `Logos.Record` runtime value with real Elixir-side work and
-      `type-of` integration, closer to real Clojure's own performance
-      story but a materially bigger lift. **Plan this one explicitly**
-      (the same way the multimethods item above was) before writing any
-      code.
+- [x] **Protocols and records** (`defprotocol`/`extend-type`/
+      `defrecord`). Done -- see `CHANGELOG.md`. Deferred from the
+      multimethods item above on purpose, since it needed its own
+      answer to a question multimethods never raised: *what does a
+      user-defined Logos type/instance actually look like?* Two routes
+      were on the table -- asked the user directly, who chose (b), a
+      genuine new `Logos.Record` runtime value (`lib/logos/value/
+      record.ex`) with real opacity (`type-of` returns the record's own
+      tag, not `:map`), over (a) plain maps with a conventional
+      `:type` key. The first item this session requiring real
+      interpreter-level integration (`type-of`/`get`/`assoc`/keyword-
+      as-function/`Logos.Printer`), not only primitives/macros layered
+      on top of the existing model. `defprotocol`/`extend-type` turned
+      out to need nothing beyond pure sugar over `defmulti`/`defmethod`
+      once `type-of` was made a uniform dispatch key across records and
+      built-in types alike. No `satisfies?`/`extends?`, no `dissoc` on
+      a record -- deliberate scope trims, same pattern as multimethods'
+      own missing hierarchy support.
 
 - [x] **`case` / `condp`.** Done -- see `CHANGELOG.md`. As anticipated,
       turned out genuinely low-risk: pure macros over `cond`/`if`, no

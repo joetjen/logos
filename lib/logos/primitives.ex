@@ -52,10 +52,11 @@ defmodule Logos.Primitives do
 
   @core_primitive_names ~w(
     + - * / quot rem = < > <= >= first rest cons list vector to-list
-    apply str keyword throw
+    apply str keyword symbol throw
     intern-var! in-ns require use import set-macro! macro? gensym
     with-meta var-doc string? meta type-of
     push-thread-binding! pop-thread-binding!
+    record current-ns
     concat list->vector list->map list->set
     spawn spawn-link spawn-monitor link unlink monitor demonitor
     trap-exits! exit self send receive-match! pid->atom normal-exit?
@@ -480,6 +481,21 @@ defmodule Logos.Primitives do
 
   defp apply_primitive("keyword", args, _runtime), do: {:error, {:invalid_args, "keyword", args}}
 
+  # `symbol`'s counterpart to `keyword` -- builds a fresh, unqualified-or-
+  # qualified *symbol* value from a string (`(symbol "a")` => `` 'a ``,
+  # `(symbol "ns" "x")` => `` 'ns/x ``), rather than a keyword. Needed by
+  # `core.logos`'s `defrecord` to synthesize its `->TypeName`/`TypeName?`
+  # names at macro-expansion time -- no other way to construct a brand
+  # new symbol from computed text (unlike `with-meta`, which only
+  # attaches metadata to a symbol that already exists).
+  defp apply_primitive("symbol", [name], _runtime) when is_binary(name),
+    do: {:ok, Symbol.new(name)}
+
+  defp apply_primitive("symbol", [ns, name], _runtime) when is_binary(ns) and is_binary(name),
+    do: {:ok, Symbol.new(name, ns)}
+
+  defp apply_primitive("symbol", args, _runtime), do: {:error, {:invalid_args, "symbol", args}}
+
   # `type-of` is the ONE primitive backing every other type predicate
   # (`nil?`/`list?`/`vector?`/`map?`/`set?`/`number?`, all pure Logos --
   # see `core.logos`) -- deliberately a single type-tag getter rather
@@ -489,15 +505,56 @@ defmodule Logos.Primitives do
   # atom -- `(= (type-of x) :list)` compares against a keyword *literal*,
   # which reads as a `Logos.Keyword` struct, never `==` a raw atom (the
   # same class of gap `normal-exit?` exists to work around).
+  # A record's `type` is already a real `Logos.Keyword` -- genuinely
+  # opaque, not the generic `:map` tag `type_tag/1` would otherwise
+  # assign every plain map. This one clause is what makes `type-of` a
+  # uniform protocol-dispatch key across both records and every built-in
+  # type -- see `defprotocol`/`extend-type` (`priv/stdlib/multimethod.logos`).
+  defp apply_primitive("type-of", [%Logos.Record{type: type}], _runtime), do: {:ok, type}
+
   defp apply_primitive("type-of", [x], _runtime),
     do: {:ok, Keyword.intern(Atom.to_string(type_tag(x)))}
 
   defp apply_primitive("type-of", args, _runtime), do: {:error, {:invalid_args, "type-of", args}}
 
+  # `record`/`current-ns` back `core.logos`'s `defrecord` macro. `record`
+  # is Elixir-side of necessity -- building a `%Logos.Record{}` isn't
+  # expressible in pure Logos, no generic "construct an arbitrary
+  # struct" facility, the same justification `pid->atom` already
+  # established. `current-ns` exposes `Logos.Runtime.current_ns/1` to
+  # Lisp code so `defrecord` can namespace-qualify a record type's tag
+  # using the namespace it was invoked from, captured once at
+  # macroexpansion time (matching Clojure: a record's identity is fixed
+  # at definition, independent of who later constructs instances) --
+  # nothing existing (`in-ns`/`ns-list`/`ns-vars`) returns the bare
+  # current namespace name to Lisp code.
+  defp apply_primitive("record", [%Keyword{} = type, fields], _runtime)
+       when is_map(fields) and not is_struct(fields),
+       do: {:ok, Logos.Record.new(type, fields)}
+
+  defp apply_primitive("record", args, _runtime), do: {:error, {:invalid_args, "record", args}}
+
+  defp apply_primitive("current-ns", [], runtime), do: {:ok, Logos.Runtime.current_ns(runtime)}
+
+  defp apply_primitive("current-ns", args, _runtime),
+    do: {:error, {:invalid_args, "current-ns", args}}
+
   # ---- logos.map: get / assoc / dissoc -----------------------------------------
   # Plain Elixir maps only (what `{...}` literals already reify to, see
   # `lib/logos/reader/actions.ex`) -- `nil` is accepted throughout as the
   # empty map, matching how `nil` doubles as "empty" for `first`/`rest`.
+  # `%Logos.Record{}` gets its own clauses right after each -- a record's
+  # `fields` is exactly this same shape, `assoc` returning a new record
+  # of the *same type*, never demoting to a plain map. `dissoc` on a
+  # record is deliberately unsupported (real Clojure demotes the result
+  # to a plain map when a required field is removed -- genuine extra
+  # complexity, out of scope for this first pass).
+
+  defp apply_primitive("get", [%Logos.Record{fields: fields}, key], _runtime),
+    do: {:ok, Map.get(fields, key)}
+
+  defp apply_primitive("get", [%Logos.Record{fields: fields}, key, default], _runtime),
+    do: {:ok, Map.get(fields, key, default)}
 
   defp apply_primitive("get", [map, key], _runtime) when is_map(map) and not is_struct(map),
     do: {:ok, Map.get(map, key)}
@@ -510,6 +567,21 @@ defmodule Logos.Primitives do
 
   defp apply_primitive("get", [nil, _key, default], _runtime), do: {:ok, default}
   defp apply_primitive("get", args, _runtime), do: {:error, {:invalid_args, "get", args}}
+
+  defp apply_primitive(
+         "assoc",
+         [%Logos.Record{fields: fields} = record, key, value | rest],
+         _runtime
+       ) do
+    case chunk_pairs([key, value | rest]) do
+      {:ok, pairs} ->
+        new_fields = Enum.reduce(pairs, fields, fn {k, v}, acc -> Map.put(acc, k, v) end)
+        {:ok, %{record | fields: new_fields}}
+
+      :error ->
+        {:error, {:invalid_args, "assoc", [record, key, value | rest]}}
+    end
+  end
 
   defp apply_primitive("assoc", [map, key, value | rest], _runtime) do
     with {:ok, base} <- as_assoc_target(map),

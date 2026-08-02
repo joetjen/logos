@@ -459,15 +459,15 @@ defmodule Logos.Eval do
 
   # Keyword-as-function (`(:key m)` / `(:key m default)`), matching real
   # Clojure keyword `IFn` behavior -- delegates to the `get` primitive
-  # (`logos.map`). Deliberately scoped to a map or `nil` argument only
-  # (not sets -- unlike Clojure, which also supports `(:x #{...})`
+  # (`logos.map`). Deliberately scoped to a map, a `%Logos.Record{}`, or
+  # `nil` (not sets -- unlike Clojure, which also supports `(:x #{...})`
   # membership-as-lookup -- not part of the documented gap this closes).
   def apply_fn(%Keyword{} = kw, [coll], runtime)
-      when is_nil(coll) or (is_map(coll) and not is_struct(coll)),
+      when is_nil(coll) or (is_map(coll) and not is_struct(coll)) or is_struct(coll, Logos.Record),
       do: Logos.Primitives.apply("get", [coll, kw], runtime)
 
   def apply_fn(%Keyword{} = kw, [coll, default], runtime)
-      when is_nil(coll) or (is_map(coll) and not is_struct(coll)),
+      when is_nil(coll) or (is_map(coll) and not is_struct(coll)) or is_struct(coll, Logos.Record),
       do: Logos.Primitives.apply("get", [coll, kw, default], runtime)
 
   def apply_fn({:host_fn, mod, fun}, arg_values, _runtime) do

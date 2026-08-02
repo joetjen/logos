@@ -8,13 +8,25 @@
 ;;
 ;; Dispatch is on the result of calling an arbitrary "dispatch function"
 ;; with the multimethod's own arguments -- strictly more general than
-;; single-dispatch-on-first-argument-type protocols (which this file
-;; deliberately does NOT provide; see ROADMAP.md for that separate,
-;; still-open design question). No hierarchy support (`isa?`/`derive`/
-;; `prefer-method`) and no `remove-method`/`methods`/`get-method`
-;; introspection -- real Clojure features, out of scope for a first
-;; pass; `:default` alone covers the overwhelming majority of real
-;; multimethod usage.
+;; single-dispatch-on-first-argument-type protocols. No hierarchy
+;; support (`isa?`/`derive`/`prefer-method`) and no `remove-method`/
+;; `methods`/`get-method` introspection -- real Clojure features, out of
+;; scope for a first pass; `:default` alone covers the overwhelming
+;; majority of real multimethod usage.
+;;
+;; `defprotocol`/`extend-type` (bottom of this file) are pure sugar over
+;; this same machinery: a protocol method is just a multimethod whose
+;; dispatch-fn is "the `type-of` of the first argument" -- real,
+;; genuine opacity for `defrecord`-built values (`priv/stdlib/core.logos`,
+;; `Logos.Record`) is what makes this a uniform dispatch key across both
+;; user-defined record types and every built-in type (`extend-type
+;; :vector Shape ...` works exactly like `extend-type Point Shape ...`).
+;; No `satisfies?`/`extends?` introspection and no protocol-name registry
+;; beyond the `defmulti`s themselves -- deliberately minimal for a first
+;; pass, the same scope trim as multimethods' own missing hierarchy
+;; support; calling a protocol method on a type nobody `extend-type`'d
+;; throws `:no-method-for-dispatch-value`, inherited for free from the
+;; underlying multimethod.
 ;;
 ;; `multimethod-registry` is a single, shared, plain re-`def`'d map var
 ;; (`name -> {:dispatch-fn f :methods {dispatch-val -> method-fn}}`),
@@ -83,3 +95,68 @@
   reserved dispatch-val matched when nothing else does."
   [name dispatch-val params & body]
   `(register-method! (quote ~name) ~dispatch-val (fn ~params ~@body)))
+;; ---- defprotocol / extend-type ---------------------------------------------------
+;; See this file's header comment. `defprotocol`'s `proto-name` and
+;; `extend-type`'s `proto-name` are currently decorative (grouping/
+;; documentation only, matching real Clojure's own syntax) -- no
+;; protocol-name registry exists yet to actually use them for.
+;; `protocol-dispatch` is shared by every `defprotocol`-declared
+;; multimethod: real Clojure protocol dispatch is always on the type of
+;; the FIRST argument alone, regardless of a method's own arity/param
+;; names, so one fixed dispatch-fn covers every method. Both macros
+;; build their expansion via plain `list`/`cons`/`first`/`rest` (no
+;; syntax-quote needed -- neither introduces a hygienic temporary),
+;; the same style `case`/`condp`'s helpers use.
+;;
+;; **`protocol-dispatch`/`defprotocol-multis`/`extend-type-methods` are
+;; deliberately PUBLIC, not `^:private`**, even though they're pure
+;; implementation helpers -- `defprotocol`/`extend-type`'s own expansion
+;; runs with whatever namespace CALLED them as current (see this file's
+;; header comment's `register-multimethod!`/`register-method!` note, and
+;; `core.logos`'s header comment for the general rule): a `^:private`
+;; helper here would only be reachable when `defprotocol`/`extend-type`
+;; happen to be called from `logos.multimethod` itself, breaking for
+;; every other (i.e. virtually every real) caller namespace.
+
+(defn protocol-dispatch
+  "`(type-of this)`, ignoring every argument after the first -- the
+  fixed dispatch-fn every `defprotocol` method's `defmulti` uses."
+  [this & _]
+  (type-of this))
+(defn defprotocol-multis
+  "Builds `defprotocol`'s expansion -- one `(defmulti method-name
+  protocol-dispatch)` per method spec."
+  [specs]
+  (cond
+    (= specs ()) ()
+    true
+    (cons (list 'defmulti (first (first specs)) 'protocol-dispatch)
+      (defprotocol-multis (rest specs)))))
+(defmacro defprotocol
+  "`(defprotocol Shape (area [this]) (perimeter [this]))` declares each
+  method as an ordinary multimethod (`defmulti`) dispatching on
+  `(type-of this)` -- `extend-type` (below) supplies implementations.
+  Calling a method on a type nobody `extend-type`'d throws
+  `:no-method-for-dispatch-value`."
+  [proto-name & method-specs]
+  (cons 'do (defprotocol-multis method-specs)))
+(defn extend-type-methods
+  "Builds `extend-type`'s expansion -- one `(defmethod method-name
+  type-val [params] body...)` per method spec."
+  [type-val specs]
+  (cond
+    (= specs ()) ()
+    true
+    (cons
+      (cons 'defmethod (cons (first (first specs)) (cons type-val (rest (first specs)))))
+      (extend-type-methods type-val (rest specs)))))
+(defmacro extend-type
+  "`(extend-type Point Shape (area [this] ...) (perimeter [this] ...))`
+  implements `proto-name`'s methods for `type-val` -- a `defrecord`'s
+  own type var (e.g. `Point`, holding its namespace-qualified tag
+  keyword) or a literal built-in type-of tag (e.g. `:vector`) work
+  identically, since both are just values a protocol method's
+  underlying `defmethod` dispatches on. Each `(method [params] body...)`
+  desugars to `(defmethod method type-val [params] body...)`."
+  [type-val proto-name & method-specs]
+  (cons 'do (extend-type-methods type-val method-specs)))

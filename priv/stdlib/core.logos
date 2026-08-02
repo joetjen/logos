@@ -861,3 +861,66 @@
       (try
         (do ~@body)
         (finally ~@(binding-pops flat))))))
+;; ---- defrecord (records) --------------------------------------------------------
+;; `defrecord` builds a real `%Logos.Record{}` value (`Logos.Record`,
+;; `record`/`current-ns`/`symbol` primitives) -- genuinely opaque:
+;; `type-of` returns the record's own namespace-qualified tag, never the
+;; generic `:map` tag a plain `{...}` literal gets. A record's `type` is
+;; fixed to the namespace `defrecord` was invoked from (`current-ns`,
+;; read once at macro-expansion time -- NOT `defrecord`'s own defining
+;; namespace, which syntax-quote auto-qualification would otherwise
+;; capture -- see this file's header comment on syntax-quote hygiene),
+;; matching Clojure records being tied to their defining namespace at
+;; compile time, not wherever the constructor is later called from.
+;; `defrecord-field-pairs` walks the flat field-symbol list the same
+;; style `binding-pushes`/`case-test-forms` already use, building a flat
+;; `(:x x :y y)` list (keyword literal, symbol form, alternating) ready
+;; to splice into the generated constructor's `(list->map (list ...))`
+;; call -- `list->map` (a `logos.core`-native primitive), not `assoc`
+;; (which lives in `logos.map`, only reachable via `logos.core`'s own
+;; refer of it): a macro's syntax-quoted body auto-qualifies its bare
+;; symbols against wherever they resolve *when this file is first read*,
+;; before `logos.map` has been loaded/referred yet, so a bare `assoc`
+;; here would wrongly auto-qualify to `logos.core/assoc` (no such var)
+;; instead of `logos.map/assoc` -- the same class of bootstrap-ordering
+;; hazard this file's other sections document, just hitting the reader's
+;; auto-qualification pass instead of ordinary call-time resolution.
+
+(def ^:private defrecord-field-pairs
+  (fn [syms]
+    (cond
+      (= syms ()) ()
+      true (cons (keyword (first syms)) (cons (first syms) (defrecord-field-pairs (rest syms)))))))
+(defmacro defrecord
+  "`(defrecord Point [x y])` interns `Point` as the type's own tag (a
+  namespace-qualified keyword, fixed to whichever namespace `defrecord`
+  was invoked from), a positional constructor `->Point`, and a `Point?`
+  predicate. A value built via `->Point` is a genuine `%Logos.Record{}`:
+  `(:x point)`/`(get point :x)`/`(assoc point :x new-val)` all work like
+  an ordinary map (`assoc` returns a new record of the SAME type, never
+  demotes to a plain map), but `type-of` returns the record's own tag,
+  not `:map` -- see `defprotocol`/`extend-type`
+  (`priv/stdlib/multimethod.logos`), pure sugar over `defmulti`/
+  `defmethod` dispatching on exactly that tag. `dissoc` on a record is
+  not supported."
+  [type-name fields]
+  (let [tag (keyword (current-ns) (str type-name))
+      ctor-name (symbol (str "->" type-name))
+      pred-name (symbol (str type-name "?"))
+      field-syms (to-list fields)
+      pairs (defrecord-field-pairs field-syms)]
+    ;; `~tag` (the literal keyword VALUE, computed once above), never
+    ;; `~type-name` (a bare symbol reference), inside `->Point`/`Point?`'s
+    ;; OWN generated bodies: a bare reference resolves against the
+    ;; CALLER's current namespace at the moment that body actually runs
+    ;; (this file's header comment), so calling `(other-ns/->Point 1 2)`
+    ;; while a DIFFERENT namespace is current would otherwise silently
+    ;; pick up THAT namespace's own `Point` var instead of `other-ns`'s
+    ;; -- confirmed with an actual cross-namespace `mix run` smoke test
+    ;; before this fix, exactly the bug class this file's other sections
+    ;; already warn about. Splicing the already-computed `tag` value
+    ;; directly sidesteps the hazard entirely.
+    `(do
+      (def ~type-name ~tag)
+      (defn ~ctor-name [~@field-syms] (record ~tag (list->map (list ~@pairs))))
+      (defn ~pred-name [v#] (= (type-of v#) ~tag)))))

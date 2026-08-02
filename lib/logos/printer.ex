@@ -28,7 +28,7 @@ defmodule Logos.Printer do
   `Float.to_string/1`'s plain-decimal range.
   """
 
-  alias Logos.{Atom, Char, Fn, Keyword, Pid, Ratio, Symbol, Vector}
+  alias Logos.{Atom, Char, Fn, Keyword, Pid, Ratio, Record, Symbol, Vector}
 
   @doc "Prints `value` to its textual form."
   @spec print(term()) :: String.t()
@@ -58,6 +58,18 @@ defmodule Logos.Printer do
   def print(%MapSet{} = set), do: "\#{" <> Enum.map_join(set, " ", &print/1) <> "}"
 
   # ---- runtime-only, non-round-trippable ----------------------------------
+
+  # `#type-kw{...}` -- Clojure prints `#user.Point{...}` (a dotted class
+  # name); Logos records are tagged with an ordinary namespaced keyword
+  # (see `Logos.Record`'s moduledoc), so `#type-kw{...}` reusing the
+  # plain-map body above is the natural fit here. No reader syntax reads
+  # this back, matching Clojure (records don't round-trip through
+  # `pr`/`read` without an explicit data reader either).
+  def print(%Record{type: %Keyword{ns: ns, name: name}, fields: fields}) do
+    inner = fields |> Enum.flat_map(fn {k, v} -> [k, v] end) |> Enum.map_join(" ", &print/1)
+    tag = if ns, do: ns <> "/" <> name, else: name
+    "#" <> tag <> "{" <> inner <> "}"
+  end
 
   def print(%Fn{} = f), do: "#<Fn " <> arity_desc(f) <> ">"
   def print(%Atom{pid: pid}), do: "#<Atom " <> inspect(pid) <> ">"

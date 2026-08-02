@@ -429,11 +429,11 @@ over each file's own source at startup.
 
 | File | Namespace | Contents |
 |---|---|---|
-| `core.logos` | `logos.core` | `defmacro` bootstrap, `let`, `if`, `when`, `unless`, `and`, `or`, `defn`, `defn-`, `doc`, `ns`, `case`, `condp`, `binding` |
+| `core.logos` | `logos.core` | `defmacro` bootstrap, `let`, `if`, `when`, `unless`, `and`, `or`, `defn`, `defn-`, `doc`, `ns`, `case`, `condp`, `binding`, `defrecord` |
 | `seq.logos` | `logos.seq` | `map`, `filter`, `reduce`, `take`, `drop`, `reverse`, `count`, `empty?`, `nth`, `second`, `last`, `some`, `every?`, `distinct`, `sort`, `sort-by`, `frequencies`, `group-by`, `range`, `repeat`, `conj`, `peek`, `pop`, `into` -- every `coll` argument accepts list/vector/map/set/`nil` |
 | `concurrency.logos` | `logos.concurrency` | `receive`, `atom`, `deref`, `swap!`, `reset!` |
 | -- (primitives only, no `.logos` file) | `logos.map` | `get`, `assoc`, `dissoc` |
-| `multimethod.logos` | `logos.multimethod` | `defmulti`, `defmethod` -- see 7.5 |
+| `multimethod.logos` | `logos.multimethod` | `defmulti`, `defmethod` -- see 7.5; `defprotocol`, `extend-type` -- see 7.7 |
 | `test.logos` | `logos.test` | `deftest`, `assert`, `assert=`, `assert-throws`, `run-tests` -- see 7.2 |
 
 `Logos.Stdlib.load!/1` refers `logos.seq`, `logos.concurrency`,
@@ -505,6 +505,9 @@ production namespaces, so it's only reachable once required explicitly
 | `defmulti` | macro | `(defmulti name dispatch-fn)` | ad-hoc polymorphism, see 7.5 |
 | `defmethod` | macro | `(defmethod name dispatch-val [params...] body...)` | see 7.5 |
 | `binding` | macro | `(binding [*a* v1 *b* v2 ...] body...)` | thread-local rebind of `^:dynamic` vars, see 7.6 |
+| `defrecord` | macro | `(defrecord Name [field...])` | genuine `%Logos.Record{}`, opaque `type-of`, see 7.7 |
+| `defprotocol` | macro | `(defprotocol Name (method [this & args])...)` | see 7.7 |
+| `extend-type` | macro | `(extend-type type-val Protocol (method [this & args] body...)...)` | see 7.7 |
 | `receive` | macro | `(receive [msg] (test handler)... (after ms default)?)` | see 9.2 |
 | `atom` | fn | `(atom initial)` | spawns the atom's backing loop process |
 | `deref` | fn | `(deref a)` | blocking request/reply against the atom's process |
@@ -897,6 +900,66 @@ process starts with no bindings of its own, matching real Clojure (a
 bare new thread doesn't inherit dynamic bindings either; only
 `bound-fn` does). Rebinding the innermost active binding from within its
 own `binding` scope (Clojure's `set!`) is not supported.
+
+### 7.7 Records and protocols
+
+`defrecord` builds a genuine `Logos.Record` value -- unlike a plain
+`{...}` map literal, `type-of` returns the record's own tag, namespace-
+qualified to wherever `defrecord` was invoked (`:user/point`, never
+`:map`):
+
+```clojure
+(defrecord Point [x y])
+
+(def p (->Point 3 4))
+(:x p)          ;=> 3
+(get p :x)       ;=> 3
+(type-of p)      ;=> :user/Point
+(Point? p)       ;=> true
+(assoc p :x 10)  ;=> a NEW Point, same type, :x now 10
+```
+
+`(defrecord Point [x y])` interns three things: `Point` itself (an
+ordinary Var holding the type's own tag keyword -- reused by
+`extend-type` below), a positional constructor `->Point`, and a
+`Point?` predicate. A record behaves like a map for reading/updating
+(`:kw`/`get`/`assoc` all work, `assoc` returning a new record of the
+*same* type, never demoting to a plain map) -- `dissoc` on a record is
+**not** supported (real Clojure demotes the result to a plain map when
+a required field is removed; deliberately out of scope here).
+
+`defprotocol`/`extend-type` are pure sugar over `defmulti`/`defmethod`
+(7.5): a protocol method is just a multimethod whose dispatch-fn is
+"the `type-of` of the first argument" -- genuine record opacity is what
+makes this a *uniform* dispatch key across both user-defined record
+types and every built-in type:
+
+```clojure
+(defprotocol Shape
+  (area [this])
+  (perimeter [this]))
+
+(extend-type Point Shape
+  (area [this] (* (:x this) (:y this)))
+  (perimeter [this] (* 2 (+ (:x this) (:y this)))))
+
+(extend-type :vector Shape
+  (area [this] (count this)))
+
+(area (->Point 3 4))  ;=> 12
+(area [1 2 3 4])       ;=> 4
+```
+
+`extend-type`'s first argument is evaluated normally, not quoted -- a
+`defrecord`'s own type var (`Point`) and a literal built-in `type-of`
+tag (`:vector`) work identically, since both are just values a protocol
+method's underlying `defmethod` dispatches on. Deliberately minimal for
+now: no `satisfies?`/`extends?` introspection and no protocol-name
+registry beyond the `defmulti`s themselves -- the same scope trim
+multimethods' own missing hierarchy support already established.
+Calling a protocol method on a type nobody `extend-type`'d throws
+`:no-method-for-dispatch-value`, inherited for free from the underlying
+multimethod.
 
 ## 8. Interop (`import`)
 

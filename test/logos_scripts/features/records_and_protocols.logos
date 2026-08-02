@@ -1,0 +1,47 @@
+;; Feature test: `defrecord` (a genuine `%Logos.Record{}` value, opaque
+;; `type-of`) and `defprotocol`/`extend-type` (pure sugar over
+;; `defmulti`/`defmethod`, dispatching on `type-of`).
+
+(require '[logos.test :refer [:all]])
+(defrecord RecordsTestPoint [x y])
+(deftest defrecord-constructs-and-reads-fields
+  (let [p (->RecordsTestPoint 3 4)]
+    (do
+      (assert= (:x p) 3)
+      (assert= (:y p) 4)
+      (assert= (get p :x) 3))))
+(deftest defrecord-predicate
+  (do
+    (assert (RecordsTestPoint? (->RecordsTestPoint 1 2)))
+    (assert (not (RecordsTestPoint? {:x 1 :y 2})))
+    (assert (not (RecordsTestPoint? 5)))))
+(deftest defrecord-type-of-is-opaque
+  (assert= (type-of (->RecordsTestPoint 1 2)) :user/RecordsTestPoint))
+(deftest defrecord-assoc-keeps-the-same-type
+  (let [p (assoc (->RecordsTestPoint 3 4) :x 10)]
+    (do
+      (assert= (:x p) 10)
+      (assert (RecordsTestPoint? p)))))
+;; `dissoc` on a record is a plain `{:error, ...}` eval failure (see
+;; `Logos.Primitives`' `assoc`/`get` record clauses), not a catchable
+;; `(throw ...)` -- `assert-throws` can't exercise that path, so it's
+;; covered instead at the ExUnit level (`test/logos/stdlib_test.exs`'s
+;; "defrecord" describe block), the same reasoning already documented in
+;; `dynamic_vars.logos` for `binding`'s own non-`^:dynamic` failure mode.
+(defrecord RecordsTestCircle [radius])
+(defrecord RecordsTestSquare [side])
+(defprotocol RecordsTestShape (records-test-area [this]))
+(extend-type RecordsTestCircle RecordsTestShape
+  (records-test-area [this] (* 3 (:radius this) (:radius this))))
+(extend-type RecordsTestSquare RecordsTestShape
+  (records-test-area [this] (* (:side this) (:side this))))
+(extend-type :vector RecordsTestShape (records-test-area [this] (count this)))
+(deftest defprotocol-dispatches-per-type
+  (do
+    (assert= (records-test-area (->RecordsTestCircle 2)) 12)
+    (assert= (records-test-area (->RecordsTestSquare 3)) 9)
+    (assert= (records-test-area [1 2 3 4]) 4)))
+(defrecord RecordsTestUnextended [x])
+(deftest defprotocol-unimplemented-method-throws
+  (assert-throws :no-method-for-dispatch-value (records-test-area (->RecordsTestUnextended 1))))
+(run-tests)

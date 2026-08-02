@@ -1021,6 +1021,181 @@ defmodule Logos.StdlibTest do
     end
   end
 
+  describe "defrecord" do
+    test "the constructor builds a record whose fields are readable via :kw and get" do
+      runtime = rt()
+      {:ok, _, _} = run("(defrecord StdlibTestPoint [x y])", runtime)
+
+      assert {:ok, [3, 4, 3], _} =
+               run(
+                 "(let [p (->StdlibTestPoint 3 4)] (list (:x p) (:y p) (get p :x)))",
+                 runtime
+               )
+    end
+
+    test "the predicate is true only for that record type" do
+      runtime = rt()
+      {:ok, _, _} = run("(defrecord StdlibTestPoint2 [x y])", runtime)
+
+      assert {:ok, true, _} = run("(StdlibTestPoint2? (->StdlibTestPoint2 1 2))", runtime)
+      assert {:ok, false, _} = run("(StdlibTestPoint2? 5)", runtime)
+      assert {:ok, false, _} = run("(StdlibTestPoint2? {:x 1 :y 2})", runtime)
+    end
+
+    test "type-of returns the record's own namespace-qualified tag, not :map" do
+      runtime = rt()
+      {:ok, _, _} = run("(defrecord StdlibTestPoint3 [x y])", runtime)
+
+      assert {:ok, %Logos.Keyword{ns: "user", name: "StdlibTestPoint3"}, _} =
+               run("(type-of (->StdlibTestPoint3 1 2))", runtime)
+    end
+
+    test "assoc returns a new record of the same type, not a plain map" do
+      runtime = rt()
+      {:ok, _, _} = run("(defrecord StdlibTestPoint4 [x y])", runtime)
+
+      assert {:ok, [10, 4, true], _} =
+               run(
+                 """
+                 (let [p (assoc (->StdlibTestPoint4 3 4) :x 10)]
+                   (list (:x p) (:y p) (StdlibTestPoint4? p)))
+                 """,
+                 runtime
+               )
+    end
+
+    test "dissoc on a record fails clearly instead of silently demoting to a plain map" do
+      runtime = rt()
+      {:ok, _, _} = run("(defrecord StdlibTestPoint5 [x y])", runtime)
+
+      assert {:error, {:invalid_args, "dissoc", _}} =
+               run("(dissoc (->StdlibTestPoint5 3 4) :x)", runtime)
+    end
+
+    test "two different namespaces defrecord-ing the same bare name get genuinely different, non-colliding tags" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (in-ns 'stdlib-test.record-ns-a)
+          (defrecord StdlibTestSharedName [x])
+          (in-ns 'stdlib-test.record-ns-b)
+          (defrecord StdlibTestSharedName [x])
+          """,
+          runtime
+        )
+
+      assert {:ok, false, _} =
+               run(
+                 """
+                 (= (type-of (stdlib-test.record-ns-a/->StdlibTestSharedName 1))
+                    (type-of (stdlib-test.record-ns-b/->StdlibTestSharedName 1)))
+                 """,
+                 runtime
+               )
+    end
+
+    # Regression: an earlier draft referenced the type-name symbol bare
+    # (`~type-name`) inside the constructor/predicate's own generated
+    # bodies instead of the already-computed tag value (`~tag`) -- a bare
+    # reference resolves against the CALLER's current namespace at the
+    # moment that body runs, not the namespace `defrecord` was invoked
+    # from, so calling a qualified constructor from a namespace that
+    # happens to have its OWN same-named record silently picked up the
+    # WRONG type. Fixed by splicing the literal tag value directly.
+    test "a qualified constructor called from a namespace with its own same-named record still tags correctly" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (in-ns 'stdlib-test.record-ns-c)
+          (defrecord StdlibTestPoint [x y])
+          (in-ns 'stdlib-test.record-ns-d)
+          (defrecord StdlibTestPoint [x y])
+          """,
+          runtime
+        )
+
+      assert {:ok, %Logos.Keyword{ns: "stdlib-test.record-ns-c"}, _} =
+               run("(type-of (stdlib-test.record-ns-c/->StdlibTestPoint 1 2))", runtime)
+    end
+  end
+
+  describe "defprotocol / extend-type" do
+    test "dispatches a protocol method by type-of, on a record type" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (defrecord StdlibTestCircle [radius])
+          (defprotocol StdlibTestShape (stdlib-test-area [this]))
+          (extend-type StdlibTestCircle StdlibTestShape
+            (stdlib-test-area [this] (* 3 (:radius this) (:radius this))))
+          """,
+          runtime
+        )
+
+      assert {:ok, 12, _} = run("(stdlib-test-area (->StdlibTestCircle 2))", runtime)
+    end
+
+    test "extend-type also works directly against a built-in type-of tag" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (defprotocol StdlibTestShape2 (stdlib-test-area2 [this]))
+          (extend-type :vector StdlibTestShape2 (stdlib-test-area2 [this] (count this)))
+          """,
+          runtime
+        )
+
+      assert {:ok, 4, _} = run("(stdlib-test-area2 [1 2 3 4])", runtime)
+    end
+
+    test "multiple types can extend the same protocol method independently" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (defrecord StdlibTestSquare [side])
+          (defrecord StdlibTestCircle2 [radius])
+          (defprotocol StdlibTestShape3 (stdlib-test-area3 [this]))
+          (extend-type StdlibTestSquare StdlibTestShape3
+            (stdlib-test-area3 [this] (* (:side this) (:side this))))
+          (extend-type StdlibTestCircle2 StdlibTestShape3
+            (stdlib-test-area3 [this] (* 3 (:radius this) (:radius this))))
+          """,
+          runtime
+        )
+
+      assert {:ok, 9, _} = run("(stdlib-test-area3 (->StdlibTestSquare 3))", runtime)
+      assert {:ok, 12, _} = run("(stdlib-test-area3 (->StdlibTestCircle2 2))", runtime)
+    end
+
+    test "calling a protocol method on a type nobody extend-type'd throws :no-method-for-dispatch-value" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (defrecord StdlibTestUnextended [x])
+          (defprotocol StdlibTestShape4 (stdlib-test-area4 [this]))
+          """,
+          runtime
+        )
+
+      assert {:error, {:uncaught_throw, tag, _thrown_value}} =
+               run("(stdlib-test-area4 (->StdlibTestUnextended 1))", runtime)
+
+      assert %Logos.Keyword{name: "no-method-for-dispatch-value"} = tag
+    end
+  end
+
   describe "logos.test" do
     test "is loaded into every Runtime but NOT auto-referred into logos.core, unlike logos.seq/map/concurrency" do
       runtime = rt()

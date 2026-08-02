@@ -9,6 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Records and protocols** (`defrecord`/`defprotocol`/`extend-type`),
+  `ROADMAP.md`'s last open Tier 2 item, deliberately deferred from the
+  multimethods work because it raises a question multimethods never
+  had to answer: what does a user-defined Logos type/instance actually
+  look like? Two routes were on the table (a plain map with a
+  conventional type-tag key, vs. a genuine new runtime value); asked
+  the user directly, who chose the latter for real opacity and closer
+  parity with actual Clojure record semantics. New `Logos.Record`
+  value module (`lib/logos/value/record.ex`), the first new core
+  value type this session and the first item requiring real
+  interpreter-level integration rather than only primitives/macros
+  around the existing model: `type-of` (`Logos.Primitives`) returns a
+  record's own namespace-qualified tag directly, never the generic
+  `:map` tag a plain `{...}` literal gets; `get`/`assoc` get record-
+  aware clauses (`assoc` returns a new record of the *same* type,
+  never demoting to a plain map -- `dissoc` on a record is
+  deliberately unsupported, real Clojure's demote-to-map behavior
+  being genuine extra complexity out of scope for this first pass);
+  keyword-as-function (`Logos.Eval.apply_fn/3`) now accepts a record
+  alongside a map/`nil`; `Logos.Printer.print/1` prints
+  `#type-kw{...}`, runtime-only like `Fn`/`Atom`/`Pid`. Two small new
+  primitives back it: `record` (Elixir-side of necessity, building an
+  arbitrary struct isn't expressible in pure Logos, the same
+  justification `pid->atom` already established) and `current-ns`
+  (exposes `Logos.Runtime.current_ns/1` to Lisp code, needed so
+  `defrecord` can fix a record type's tag to the namespace it was
+  *invoked* from, captured once at macro-expansion time, independent
+  of whoever later calls the constructor -- also added a `symbol`
+  primitive, `keyword`'s counterpart, to let `defrecord` synthesize
+  its `->Name`/`Name?` var names). `defrecord`/`defprotocol`/
+  `extend-type` themselves are pure Logos (`priv/stdlib/core.logos`,
+  `priv/stdlib/multimethod.logos`): `defprotocol`/`extend-type` are
+  thin sugar generating `defmulti`/`defmethod` calls dispatching on
+  `type-of`, which is now a uniform dispatch key across both record
+  types and every built-in type (`extend-type :vector Shape ...` and
+  `extend-type Point Shape ...` work identically). No
+  `satisfies?`/`extends?` introspection and no protocol-name registry
+  -- deliberately minimal, the same scope trim multimethods' own
+  missing hierarchy support already established.
+
+  Found and fixed a real bug while building this: `defrecord`'s first
+  draft referenced its own type-name symbol *bare* inside the
+  generated constructor/predicate bodies, instead of the already-
+  computed tag value -- a bare reference resolves against the
+  CALLER's current namespace at the moment that code actually runs
+  (documented in `core.logos`'s own header comment), not the
+  namespace `defrecord` was invoked from, so a qualified constructor
+  called from a namespace with its own same-named record silently
+  picked up the WRONG type. Caught by an actual cross-namespace
+  `mix run` smoke test before it ever reached a test file; fixed by
+  splicing the literal tag value directly instead of the symbol
+  reference. A second, narrower bug: `defprotocol`/`extend-type`'s own
+  helper functions (`defprotocol-multis`/`extend-type-methods`/
+  `protocol-dispatch`) were first written `^:private`, which broke
+  them for every caller namespace other than `logos.multimethod`
+  itself -- the exact hazard `core.logos`'s header comment already
+  documents for helpers living outside `logos.core`'s own auto-refer
+  exemption; fixed by making them public, matching
+  `register-multimethod!`/`register-method!`'s own precedent in the
+  same file.
 - **Dynamic vars and `binding`**, `ROADMAP.md`'s third Tier 2 item.
   Unlike every other item shipped this session, this one genuinely
   couldn't be pure Logos over existing primitives: dynamically-scoped
