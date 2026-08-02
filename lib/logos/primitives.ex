@@ -43,6 +43,26 @@ defmodule Logos.Primitives do
   rescues it back into `{:error, reason}`, so the public top-level API's
   contract is unaffected.
 
+  ## Sorted collections and transients
+
+  `compare`, `sorted-map`/`sorted-map-by`, `sorted-set`/`sorted-set-by`/
+  `sorted-set-put`/`sorted-set-remove`, and `transient`/`conj!`/`assoc!`/
+  `dissoc!`/`disj!`/`pop!`/`persistent!` are Elixir-level of necessity,
+  not by choice: `Logos.SortedMap`/`Logos.SortedSet` (genuine new value
+  types, mirroring `Logos.Vector`) need real access to their own sorted
+  association-list representation, and `Logos.Transient` needs real
+  `:ets` mutation -- see those three modules' own moduledocs for the full
+  reasoning (why a sorted association list rather than a balanced tree,
+  why a `:private` ETS table rather than a process+message design like
+  `atom`). `logos_compare/2` (this module's private ordering logic,
+  shared by `compare` and every sorted collection's default comparator)
+  and `comparator_fn/2` (wraps a `sorted-map-by`/`sorted-set-by` caller-
+  supplied Logos function into the plain 2-arity Elixir function those
+  two value types need, via `Logos.Eval.apply_fn/3` -- the same call-back
+  mechanism `apply` itself already uses, no new evaluator machinery) sit
+  at the very end of this file, alongside the pre-existing numeric-tower
+  comparison helpers they build on.
+
   ## Concurrency primitives
 
   `spawn`/`spawn-link`/`spawn-monitor`/`link`/`unlink`/`monitor`/
@@ -59,24 +79,38 @@ defmodule Logos.Primitives do
   `atom-loop`.
   """
 
-  alias Logos.{Interop, Keyword, Namespace, Ratio, Symbol, Vector}
+  alias Logos.{
+    Interop,
+    Keyword,
+    Namespace,
+    Ratio,
+    SortedMap,
+    SortedSet,
+    Symbol,
+    Transient,
+    Vector
+  }
+
   alias Logos.Process, as: LProcess
 
   @core_primitive_names ~w(
-    + - * / quot rem = < > <= >= first rest cons list vector to-list
-    apply str keyword symbol throw
+    + - * / quot rem = < > <= >= compare first rest cons list vector to-list
+    apply str read-string pr-str keyword symbol throw
     intern-var! in-ns require use import register-data-reader! set-macro! macro? gensym
     with-meta var-doc string? meta type-of
     push-thread-binding! pop-thread-binding!
     record current-ns
     concat list->vector list->map list->set
+    sorted-map sorted-map-by sorted-set sorted-set-by sorted-set-put sorted-set-remove
+    transient conj! assoc! dissoc! disj! pop! persistent!
     spawn spawn-link spawn-monitor link unlink monitor demonitor
     trap-exits! exit self send receive-match! pid->atom normal-exit?
     system-argv ns-list ns-vars
   )
 
-  # `logos.map`'s primitives (`get`/`assoc`/`dissoc`) -- these need real
-  # Elixir map access with no way to express it in pure Logos, so unlike
+  # `logos.map`'s primitives (`get`/`assoc`/`dissoc`, plus `get`/`assoc`
+  # on a vector and `get` on a set) -- these need real Elixir collection
+  # access with no way to express it in pure Logos, so unlike
   # `logos.seq`/`logos.concurrency` (ordinary `.logos` files, see
   # `Logos.Stdlib`), `logos.map` has no Logos source of its own at all.
   @map_primitive_names ~w(get assoc dissoc)
@@ -160,12 +194,31 @@ defmodule Logos.Primitives do
   defp apply_primitive("=", [_single], _runtime), do: true
 
   defp apply_primitive("=", [a, b | rest], _runtime),
-    do: chained?([a, b | rest], &(&1 == &2))
+    do: chained?([a, b | rest], &logos_equal?/2)
 
   defp apply_primitive("<", args, _runtime), do: chained?(args, &num_lt?/2)
   defp apply_primitive(">", args, _runtime), do: chained?(args, &num_gt?/2)
   defp apply_primitive("<=", args, _runtime), do: chained?(args, &num_le?/2)
   defp apply_primitive(">=", args, _runtime), do: chained?(args, &num_ge?/2)
+
+  # `compare` -- Clojure's general-purpose 3-way ordering (returns a
+  # negative/zero/positive integer), distinct from `<`/`<=`/... which
+  # stay strictly numeric (matching real Clojure -- `<` on two strings
+  # throws there too). Backs `sorted-map`/`sorted-set`'s default
+  # ordering (`logos_compare/2` below is reused directly as their `cmp`
+  # when no `-by` comparator is given) and, via `logos.seq`'s own
+  # `sort`/`sort-by`, replaces those two functions' previous numeric-only
+  # `<=`-based comparator -- see `priv/stdlib/seq.logos`.
+  defp apply_primitive("compare", [a, b], _runtime) do
+    case logos_compare(a, b) do
+      :lt -> -1
+      :eq -> 0
+      :gt -> 1
+    end
+  end
+
+  defp apply_primitive("compare", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "compare", args})
 
   # ---- collections ----------------------------------------------------------------
 
@@ -517,6 +570,34 @@ defmodule Logos.Primitives do
   # `"[1 2]"` etc.) rather than reimplementing per-type stringification.
   defp apply_primitive("str", args, _runtime), do: Enum.map_join(args, "", &stringify/1)
 
+  # Clojure's own `pr-str`: unlike `str`, every argument (strings
+  # included) goes through `Logos.Printer.print/1` unchanged -- the
+  # round-trippable form, not the human-readable one (`(pr-str "hi")` =>
+  # `"\"hi\""`, quotes and all; `(str "hi")` => `"hi"` bare). Multiple
+  # arguments join with a single space, matching real `pr-str`/`pr`.
+  defp apply_primitive("pr-str", args, _runtime),
+    do: Enum.map_join(args, " ", &Logos.Printer.print/1)
+
+  # `read-string` -- the read-time half `str`/`pr-str` don't cover:
+  # parses `s` as Logos source text and returns the FIRST form as plain
+  # (unevaluated) data, exactly like `Logos.Reader.read/2` already does
+  # at the Elixir level, just reachable from Logos code itself now.
+  # Threads `runtime` through so tagged literals (`#inst`/`#uuid`/a
+  # `register-data-reader!`-registered tag) resolve the same way they
+  # would reading a top-level script. A malformed `s` raises
+  # `Logos.EvalError` (`{:read_error, reason}`) rather than returning
+  # some `nil`/sentinel value -- ordinary, catchable failure, matching
+  # every other primitive's error convention.
+  defp apply_primitive("read-string", [s], runtime) when is_binary(s) do
+    case Logos.Reader.read(s, runtime) do
+      {:ok, form} -> form
+      {:error, reason} -> raise Logos.EvalError, reason: {:read_error, reason}
+    end
+  end
+
+  defp apply_primitive("read-string", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "read-string", args})
+
   # Clojure's own `keyword`: builds a keyword from a string (`(keyword
   # "a")` => `:a`, `(keyword "ns" "x")` => `:ns/x`) or from a symbol's
   # own name/ns directly (`(keyword 'a)` => `:a`, `(keyword 'ns/x)` =>
@@ -601,21 +682,75 @@ defmodule Logos.Primitives do
     do: raise(Logos.EvalError, reason: {:invalid_args, "current-ns", args})
 
   # ---- logos.map: get / assoc / dissoc -----------------------------------------
-  # Plain Elixir maps only (what `{...}` literals already reify to, see
-  # `lib/logos/reader/actions.ex`) -- `nil` is accepted throughout as the
-  # empty map, matching how `nil` doubles as "empty" for `first`/`rest`.
-  # `%Logos.Record{}` gets its own clauses right after each -- a record's
-  # `fields` is exactly this same shape, `assoc` returning a new record
-  # of the *same type*, never demoting to a plain map. `dissoc` on a
-  # record is deliberately unsupported (real Clojure demotes the result
-  # to a plain map when a required field is removed -- genuine extra
-  # complexity, out of scope for this first pass).
+  # Plain Elixir maps (what `{...}` literals already reify to, see
+  # `lib/logos/reader/actions.ex`) plus vectors/sets/records/sorted-maps/
+  # sorted-sets/transients, each with their own dedicated clauses right
+  # below -- `nil` is accepted throughout as the empty map, matching how
+  # `nil` doubles as "empty" for `first`/`rest`. `%Logos.Record{}`'s
+  # `fields` is exactly the plain-map shape, `assoc` returning a new
+  # record of the *same type*, never demoting to a plain map. `dissoc`
+  # on a record is deliberately unsupported (real Clojure demotes the
+  # result to a plain map when a required field is removed -- genuine
+  # extra complexity, out of scope for this first pass); `dissoc` has no
+  # vector/set clause at all either -- not a meaningful operation on
+  # either (Clojure's own `dissoc` is map-only too).
 
   defp apply_primitive("get", [%Logos.Record{fields: fields}, key], _runtime),
     do: Map.get(fields, key)
 
   defp apply_primitive("get", [%Logos.Record{fields: fields}, key, default], _runtime),
     do: Map.get(fields, key, default)
+
+  # `%SortedMap{}` gets its own `get`/`assoc`/`dissoc` clauses (right
+  # alongside `%Logos.Record{}`'s) rather than falling through to the
+  # generic plain-map clauses below -- it's a genuinely different Elixir
+  # representation (a sorted association list, not a real `Map.t()`), so
+  # `is_map/1` never matches it anyway; these clauses exist to give it
+  # correct behavior, not just to intercept a would-be crash.
+  defp apply_primitive("get", [%SortedMap{} = m, key], _runtime), do: SortedMap.get(m, key)
+
+  defp apply_primitive("get", [%SortedMap{} = m, key, default], _runtime),
+    do: SortedMap.get(m, key, default)
+
+  # A transient's read side: peeks its current value in place (no
+  # `persistent!` needed), matching real Clojure's transients directly
+  # implementing the same read interfaces (`ILookup`) their persistent
+  # counterparts do. `:invalid` (used after `persistent!`, or from a
+  # different process than created it -- see `Logos.Transient`'s
+  # moduledoc) surfaces as an ordinary catchable primitive failure.
+  defp apply_primitive("get", [%Transient{} = t, key], _runtime), do: transient_get(t, key, nil)
+
+  defp apply_primitive("get", [%Transient{} = t, key, default], _runtime),
+    do: transient_get(t, key, default)
+
+  # `get` on a vector is index lookup (bounds-checked, out-of-range ->
+  # default), matching real Clojure's own `(get [1 2 3] 5)` => `nil`
+  # (not an out-of-bounds throw the way `nth` gives -- `get`/`nth` are
+  # deliberately different failure modes on a vector in real Clojure
+  # too). `vector_get/3` is also `transient_get/3`'s own Vector case
+  # (see below) -- one shared helper, not two copies of the same bounds
+  # check.
+  defp apply_primitive("get", [%Vector{} = v, index], _runtime), do: vector_get(v, index, nil)
+
+  defp apply_primitive("get", [%Vector{} = v, index, default], _runtime),
+    do: vector_get(v, index, default)
+
+  # `get` on a set is real Clojure's own membership-as-lookup: the
+  # element itself if present (not just `true`), `default`/`nil`
+  # otherwise -- what makes `contains?` (`priv/stdlib/seq.logos`, a pure
+  # sentinel-default wrapper over `get`, no primitive of its own needed)
+  # work uniformly across every `get`-able shape.
+  defp apply_primitive("get", [%MapSet{} = s, key], _runtime),
+    do: if(MapSet.member?(s, key), do: key, else: nil)
+
+  defp apply_primitive("get", [%MapSet{} = s, key, default], _runtime),
+    do: if(MapSet.member?(s, key), do: key, else: default)
+
+  defp apply_primitive("get", [%SortedSet{} = s, key], _runtime),
+    do: if(SortedSet.member?(s, key), do: key, else: nil)
+
+  defp apply_primitive("get", [%SortedSet{} = s, key, default], _runtime),
+    do: if(SortedSet.member?(s, key), do: key, else: default)
 
   defp apply_primitive("get", [map, key], _runtime) when is_map(map) and not is_struct(map),
     do: Map.get(map, key)
@@ -646,6 +781,27 @@ defmodule Logos.Primitives do
     end
   end
 
+  defp apply_primitive("assoc", [%SortedMap{} = m, key, value | rest], _runtime) do
+    case chunk_pairs([key, value | rest]) do
+      {:ok, pairs} -> Enum.reduce(pairs, m, fn {k, v}, acc -> SortedMap.put(acc, k, v) end)
+      :error -> raise Logos.EvalError, reason: {:invalid_args, "assoc", [m, key, value | rest]}
+    end
+  end
+
+  # `assoc` on a vector is index assignment -- real Clojure allows an
+  # existing index OR exactly one past the end (append, same as `conj`),
+  # nothing further -- `(assoc [1 2 3] 5 :x)` throws in real Clojure too,
+  # rather than silently padding a gap. Guarded explicitly rather than
+  # handed straight to `Vector.put/3`: the underlying `:array` it wraps
+  # auto-extends on an out-of-range `:array.set/3`, which would otherwise
+  # silently leave undefined gap slots in the vector instead of raising.
+  defp apply_primitive("assoc", [%Vector{} = v, index, value | rest], _runtime) do
+    case chunk_pairs([index, value | rest]) do
+      {:ok, pairs} -> Enum.reduce(pairs, v, &vector_assoc_one/2)
+      :error -> raise Logos.EvalError, reason: {:invalid_args, "assoc", [v, index, value | rest]}
+    end
+  end
+
   defp apply_primitive("assoc", [map, key, value | rest], _runtime) do
     with {:ok, base} <- as_assoc_target(map),
          {:ok, pairs} <- chunk_pairs([key, value | rest]) do
@@ -658,6 +814,9 @@ defmodule Logos.Primitives do
   defp apply_primitive("assoc", args, _runtime),
     do: raise(Logos.EvalError, reason: {:invalid_args, "assoc", args})
 
+  defp apply_primitive("dissoc", [%SortedMap{} = m | keys], _runtime),
+    do: Enum.reduce(keys, m, &SortedMap.delete(&2, &1))
+
   defp apply_primitive("dissoc", [map | keys], _runtime) do
     case as_assoc_target(map) do
       {:ok, base} -> Map.drop(base, keys)
@@ -667,6 +826,156 @@ defmodule Logos.Primitives do
 
   defp apply_primitive("dissoc", args, _runtime),
     do: raise(Logos.EvalError, reason: {:invalid_args, "dissoc", args})
+
+  # ---- sorted-map / sorted-set ---------------------------------------------------
+  # `sorted-map`/`sorted-set` use the shared default ordering
+  # (`logos_compare/2`, the same one `compare` exposes to Lisp code);
+  # `sorted-map-by`/`sorted-set-by` take an explicit comparator instead --
+  # an ordinary Logos function, wrapped by `comparator_fn/2` into the
+  # plain 2-arity `(:lt | :eq | :gt)`-returning Elixir function
+  # `Logos.SortedMap`/`Logos.SortedSet` need, calling back into it via
+  # `Logos.Eval.apply_fn/3` exactly the way `apply`'s own primitive
+  # already does -- no new evaluator machinery. Real Clojure comparator
+  # convention: the Logos function must return a negative/zero/positive
+  # integer (`compare`'s own return shape), not a boolean -- `<`-style
+  # comparators don't work here in real Clojure either.
+  defp apply_primitive("sorted-map", args, _runtime) do
+    case chunk_pairs(args) do
+      {:ok, pairs} -> SortedMap.new(pairs, &logos_compare/2)
+      :error -> raise Logos.EvalError, reason: {:invalid_args, "sorted-map", args}
+    end
+  end
+
+  defp apply_primitive("sorted-map-by", [cmp | rest], runtime) do
+    case chunk_pairs(rest) do
+      {:ok, pairs} -> SortedMap.new(pairs, comparator_fn(cmp, runtime))
+      :error -> raise Logos.EvalError, reason: {:invalid_args, "sorted-map-by", [cmp | rest]}
+    end
+  end
+
+  defp apply_primitive("sorted-map-by", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "sorted-map-by", args})
+
+  defp apply_primitive("sorted-set", args, _runtime), do: SortedSet.new(args, &logos_compare/2)
+
+  defp apply_primitive("sorted-set-by", [cmp | rest], runtime),
+    do: SortedSet.new(rest, comparator_fn(cmp, runtime))
+
+  defp apply_primitive("sorted-set-by", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "sorted-set-by", args})
+
+  # One-element-at-a-time sorted-set mutators, mirroring `conj`/`disj`'s
+  # own "primitive does one element, `logos.seq` reduces over the rest"
+  # split (see `priv/stdlib/seq.logos`'s `conj`/`disj`) -- unlike
+  # `assoc`/`dissoc`, which are themselves already n-ary primitives, so
+  # their `SortedMap` clauses above stay n-ary too.
+  defp apply_primitive("sorted-set-put", [%SortedSet{} = s, x], _runtime), do: SortedSet.put(s, x)
+
+  defp apply_primitive("sorted-set-put", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "sorted-set-put", args})
+
+  defp apply_primitive("sorted-set-remove", [%SortedSet{} = s, x], _runtime),
+    do: SortedSet.delete(s, x)
+
+  defp apply_primitive("sorted-set-remove", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "sorted-set-remove", args})
+
+  # ---- transients -------------------------------------------------------------
+  # `transient`/`conj!`/`assoc!`/`dissoc!`/`disj!`/`pop!`/`persistent!` --
+  # see `Logos.Transient`'s moduledoc for why this is a `:private`-ETS-
+  # backed value type rather than a process+message design like `atom`
+  # (concurrency.logos): real, in-place O(1) mutation (the actual reason
+  # transients exist), with BEAM itself enforcing both of Clojure's
+  # transient safety rules (single-owner-process-only, no use after
+  # `persistent!`) as a side effect of that choice, not a separate check.
+  #
+  # Only vectors/maps/sets are "editable collections" here, matching real
+  # Clojure exactly -- `(transient (sorted-map))`/`(transient '(1 2))`
+  # throw in real Clojure too (`PersistentTreeMap`/`PersistentList` don't
+  # implement `IEditableCollection`), so `SortedMap`/`SortedSet`/lists
+  # deliberately have no `transient` clause here either, falling through
+  # to the generic `invalid_args` raise below.
+  defp apply_primitive("transient", [%Vector{} = v], _runtime), do: Transient.new(v)
+
+  defp apply_primitive("transient", [%{} = m], _runtime) when not is_struct(m),
+    do: Transient.new(m)
+
+  defp apply_primitive("transient", [%MapSet{} = s], _runtime), do: Transient.new(s)
+
+  defp apply_primitive("transient", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "transient", args})
+
+  # `conj!`/`disj!` -- single extra element per call, matching real
+  # Clojure's own (non-variadic) `conj!`/`disj!` signatures, unlike
+  # persistent `conj`/`disj`. `assoc!`/`dissoc!` stay variadic (multiple
+  # k/v pairs, multiple keys), matching their persistent counterparts and
+  # real Clojure's own `assoc!`.
+  defp apply_primitive("conj!", [%Transient{} = t, x], _runtime) do
+    transient_update!(t, "conj!", fn
+      %Vector{} = v -> Vector.conj(v, x)
+      %{} = m when not is_struct(m) -> transient_map_conj(m, x)
+      %MapSet{} = s -> MapSet.put(s, x)
+    end)
+  end
+
+  defp apply_primitive("conj!", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "conj!", args})
+
+  defp apply_primitive("assoc!", [%Transient{} = t, key, value | rest], _runtime) do
+    case chunk_pairs([key, value | rest]) do
+      {:ok, pairs} ->
+        transient_update!(t, "assoc!", fn
+          %{} = m when not is_struct(m) ->
+            Enum.reduce(pairs, m, fn {k, v}, acc -> Map.put(acc, k, v) end)
+
+          %Vector{} = v ->
+            Enum.reduce(pairs, v, fn {idx, val}, acc -> Vector.put(acc, idx, val) end)
+        end)
+
+      :error ->
+        raise Logos.EvalError, reason: {:invalid_args, "assoc!", [t, key, value | rest]}
+    end
+  end
+
+  defp apply_primitive("assoc!", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "assoc!", args})
+
+  defp apply_primitive("dissoc!", [%Transient{} = t | keys], _runtime) do
+    transient_update!(t, "dissoc!", fn
+      %{} = m when not is_struct(m) -> Map.drop(m, keys)
+    end)
+  end
+
+  defp apply_primitive("dissoc!", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "dissoc!", args})
+
+  defp apply_primitive("disj!", [%Transient{} = t, x], _runtime) do
+    transient_update!(t, "disj!", fn
+      %MapSet{} = s -> MapSet.delete(s, x)
+    end)
+  end
+
+  defp apply_primitive("disj!", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "disj!", args})
+
+  defp apply_primitive("pop!", [%Transient{} = t], _runtime) do
+    transient_update!(t, "pop!", fn
+      %Vector{} = v -> Vector.new(Enum.take(Vector.to_list(v), max(Vector.count(v) - 1, 0)))
+    end)
+  end
+
+  defp apply_primitive("pop!", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "pop!", args})
+
+  defp apply_primitive("persistent!", [%Transient{} = t], _runtime) do
+    case Transient.persistent!(t) do
+      {:ok, value} -> value
+      :invalid -> raise Logos.EvalError, reason: {:transient_used_after_persistent, "persistent!"}
+    end
+  end
+
+  defp apply_primitive("persistent!", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "persistent!", args})
 
   # ---- concurrency (dispatches to Logos.Process -- see that module for the real BEAM mechanics) --
 
@@ -1086,6 +1395,9 @@ defmodule Logos.Primitives do
   defp type_tag(l) when is_list(l), do: :list
   defp type_tag(%Vector{}), do: :vector
   defp type_tag(%MapSet{}), do: :set
+  defp type_tag(%SortedMap{}), do: :"sorted-map"
+  defp type_tag(%SortedSet{}), do: :"sorted-set"
+  defp type_tag(%Transient{}), do: :transient
   defp type_tag(%{} = m) when not is_struct(m), do: :map
   defp type_tag(%Logos.Fn{}), do: :fn
   defp type_tag({:primitive, _}), do: :fn
@@ -1127,6 +1439,25 @@ defmodule Logos.Primitives do
   defp to_list_value(list) when is_list(list), do: {:ok, list}
   defp to_list_value(nil), do: {:ok, []}
   defp to_list_value(%MapSet{} = s), do: {:ok, MapSet.to_list(s)}
+  defp to_list_value(%SortedSet{} = s), do: {:ok, SortedSet.to_list(s)}
+
+  defp to_list_value(%SortedMap{entries: entries}),
+    do: {:ok, Enum.map(entries, fn {k, v} -> [k, v] end)}
+
+  # A transient coerces via its own *current* (in-place) value -- this is
+  # what makes `count`/`empty?`/`to-list`/`nth`/... (every `logos.seq`
+  # function built on `to-list`, see that file's moduledoc) work directly
+  # against a live transient for free, matching real Clojure transients
+  # implementing the same read interfaces their persistent counterparts
+  # do. Raises directly (rather than returning `:error`, this function's
+  # usual "wrong shape" signal) so a used-after-`persistent!` transient
+  # reports that specific failure, not a generic `invalid_args`.
+  defp to_list_value(%Transient{} = t) do
+    case Transient.get(t) do
+      {:ok, value} -> to_list_value(value)
+      :invalid -> raise Logos.EvalError, reason: {:transient_used_after_persistent, "to-list"}
+    end
+  end
 
   defp to_list_value(%{} = m) when not is_struct(m),
     do: {:ok, Enum.map(m, fn {k, v} -> [k, v] end)}
@@ -1373,4 +1704,171 @@ defmodule Logos.Primitives do
       true -> :eq
     end
   end
+
+  # ---- generic `compare`/`=` ordering -------------------------------------------
+  # Clojure's own "natural ordering": `nil` sorts least, then booleans
+  # (`false` < `true`), numbers (any pairing across the numeric tower, via
+  # `numeric_compare/2` above -- already used by `<`/`<=`/...), strings,
+  # chars, keywords/symbols (by `{ns, name}`, matching real Clojure
+  # comparing those same two fields), and vectors/lists (elementwise,
+  # shorter-is-less if one is a prefix of the other -- matching Clojure's
+  # own sequential-collection `compare`). Any other pairing (maps, sets,
+  # records, functions, pids, atoms, transients, or two values from
+  # different, unrelated categories above) is genuinely incomparable and
+  # raises, matching real Clojure's own `ClassCastException` there.
+  defp logos_compare(nil, nil), do: :eq
+  defp logos_compare(nil, _b), do: :lt
+  defp logos_compare(_a, nil), do: :gt
+
+  defp logos_compare(a, b) when is_boolean(a) and is_boolean(b),
+    do: term_compare(bool_rank(a), bool_rank(b))
+
+  defp logos_compare(a, b) when is_binary(a) and is_binary(b), do: term_compare(a, b)
+
+  defp logos_compare(%Logos.Char{codepoint: c1}, %Logos.Char{codepoint: c2}),
+    do: term_compare(c1, c2)
+
+  defp logos_compare(%Keyword{ns: ns1, name: n1}, %Keyword{ns: ns2, name: n2}),
+    do: term_compare({ns1 || "", n1}, {ns2 || "", n2})
+
+  defp logos_compare(%Symbol{ns: ns1, name: n1}, %Symbol{ns: ns2, name: n2}),
+    do: term_compare({ns1 || "", n1}, {ns2 || "", n2})
+
+  defp logos_compare(%Vector{} = a, %Vector{} = b),
+    do: compare_seqs(Vector.to_list(a), Vector.to_list(b))
+
+  defp logos_compare(a, b) when is_list(a) and is_list(b), do: compare_seqs(a, b)
+
+  defp logos_compare(a, b) do
+    if numeric_value?(a) and numeric_value?(b) do
+      numeric_compare(a, b)
+    else
+      raise Logos.EvalError, reason: {:not_comparable, a, b}
+    end
+  end
+
+  defp bool_rank(false), do: 0
+  defp bool_rank(true), do: 1
+
+  defp numeric_value?(n) when is_integer(n) or is_float(n), do: true
+  defp numeric_value?(%Ratio{}), do: true
+  defp numeric_value?(%Decimal{}), do: true
+  defp numeric_value?(_other), do: false
+
+  defp compare_seqs([], []), do: :eq
+  defp compare_seqs([], _b), do: :lt
+  defp compare_seqs(_a, []), do: :gt
+
+  defp compare_seqs([a | as], [b | bs]) do
+    case logos_compare(a, b) do
+      :eq -> compare_seqs(as, bs)
+      other -> other
+    end
+  end
+
+  # `=`'s own generic equality: identical to plain Elixir `==` for every
+  # ordinary case (struct equality already agrees with numeric equality
+  # for reduced ratios etc. -- see `chained?/2`'s own comment above), plus
+  # dedicated content-equality clauses so a sorted collection is `=` to a
+  # plain one with the same entries, matching real Clojure (`(=
+  # (sorted-map :a 1) {:a 1})` is `true` there too -- map/set equality is
+  # by content, never by concrete implementation class).
+  defp logos_equal?(%SortedMap{} = a, %SortedMap{} = b),
+    do: Map.new(a.entries) == Map.new(b.entries)
+
+  defp logos_equal?(%SortedMap{} = a, b) when is_map(b) and not is_struct(b),
+    do: Map.new(a.entries) == b
+
+  defp logos_equal?(a, %SortedMap{} = b) when is_map(a) and not is_struct(a),
+    do: a == Map.new(b.entries)
+
+  defp logos_equal?(%SortedSet{} = a, %SortedSet{} = b),
+    do: MapSet.new(a.entries) == MapSet.new(b.entries)
+
+  defp logos_equal?(%SortedSet{} = a, %MapSet{} = b), do: MapSet.new(a.entries) == b
+  defp logos_equal?(%MapSet{} = a, %SortedSet{} = b), do: a == MapSet.new(b.entries)
+  defp logos_equal?(a, b), do: a == b
+
+  # ---- sorted-collection comparator plumbing -------------------------------------
+  # Wraps a Logos function value into the plain 2-arity Elixir function
+  # `Logos.SortedMap`/`Logos.SortedSet` need internally -- see
+  # `sorted-map-by`/`sorted-set-by` above.
+  defp comparator_fn(f, runtime) do
+    fn a, b ->
+      case Logos.Eval.apply_fn(f, [a, b], runtime) do
+        n when is_integer(n) and n < 0 -> :lt
+        n when is_integer(n) and n > 0 -> :gt
+        0 -> :eq
+        other -> raise Logos.EvalError, reason: {:invalid_comparator_result, other}
+      end
+    end
+  end
+
+  # ---- transient mutation plumbing ------------------------------------------------
+  # Shared by every `...!` primitive above: reads the transient's current
+  # value, applies `fun` (a `FunctionClauseError` -- e.g. `disj!` against
+  # a transient *map* -- is converted into a clear `invalid_args`-shaped
+  # failure rather than an opaque Elixir crash), and returns the
+  # transient itself, per Clojure's own "always use the returned value"
+  # transient contract.
+  defp transient_update!(%Transient{} = t, op_name, fun) do
+    case Transient.update!(t, fun) do
+      {:ok, transient} -> transient
+      :invalid -> raise Logos.EvalError, reason: {:transient_used_after_persistent, op_name}
+    end
+  rescue
+    FunctionClauseError -> raise Logos.EvalError, reason: {:invalid_args, op_name, [t]}
+  end
+
+  defp transient_get(%Transient{} = t, key, default) do
+    case Transient.get(t) do
+      {:ok, %{} = m} when not is_struct(m) ->
+        Map.get(m, key, default)
+
+      {:ok, %Vector{} = v} ->
+        vector_get(v, key, default)
+
+      {:ok, %MapSet{} = s} ->
+        if MapSet.member?(s, key), do: key, else: default
+
+      {:ok, _other} ->
+        default
+
+      :invalid ->
+        raise Logos.EvalError, reason: {:transient_used_after_persistent, "get"}
+    end
+  end
+
+  # Shared by `get` on a plain `%Vector{}` and `transient_get/3`'s own
+  # Vector case -- one bounds check, not two copies of it.
+  defp vector_get(%Vector{} = v, index, default) do
+    n = Vector.count(v)
+    if is_integer(index) and index >= 0 and index < n, do: Vector.nth(v, index), else: default
+  end
+
+  # `assoc` on a vector's own per-pair worker -- see that primitive
+  # clause's comment above for why an out-of-range index raises rather
+  # than silently extending past one-past-the-end.
+  defp vector_assoc_one({index, value}, acc) do
+    n = Vector.count(acc)
+
+    cond do
+      not is_integer(index) ->
+        raise Logos.EvalError, reason: {:invalid_args, "assoc", [acc, index, value]}
+
+      index < 0 or index > n ->
+        raise Logos.EvalError, reason: {:index_out_of_bounds, index}
+
+      true ->
+        Vector.put(acc, index, value)
+    end
+  end
+
+  # `conj!`'s map-target contract, matching persistent `conj`'s own
+  # (`priv/stdlib/seq.logos`): each conjoined element must be a
+  # 2-element `(k v)` pair.
+  defp transient_map_conj(m, [k, v]), do: Map.put(m, k, v)
+
+  defp transient_map_conj(_m, other),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "conj!", [other]})
 end

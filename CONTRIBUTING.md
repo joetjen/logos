@@ -53,9 +53,10 @@ the **reader** (`priv/grammar/logos.aether`, an Aether grammar, plus
 running entirely before evaluation starts) which feeds **eval**
 (`Logos.Eval`, a tree-walking evaluator implementing exactly six special
 forms -- `quote`/`cond`/`do`/`def`/`fn`/`try` -- with everything else,
-including `if`/`let`/`defmacro`/`receive`, an ordinary macro defined
-across the four `priv/stdlib/*.logos` files (`Logos.Stdlib`'s moduledoc
-has the exact namespace-per-file breakdown). `Logos.Runtime`/`Logos.Namespace`/`Logos.Var`
+including `if`/`let`/`defmacro`/`receive`/`defmulti`, an ordinary macro
+or function defined across the eight `priv/stdlib/*.logos` files
+(`Logos.Stdlib`'s moduledoc has the exact namespace-per-file breakdown).
+`Logos.Runtime`/`Logos.Namespace`/`Logos.Var`
 sit underneath all three: a per-embedding-instance, ETS-backed namespace
 registry, never a global singleton. If you're orienting yourself in the
 codebase for the first time, read the moduledocs in roughly that order --
@@ -83,7 +84,7 @@ mix format                        # Elixir source formatting (writes)
 mix compile --warnings-as-errors  # the compile-cleanliness bar this project holds itself to
 mix credo --strict                # static analysis
 mix sobelow                       # security static analysis
-mix test                          # full suite (280 tests)
+mix test                          # full suite (500+ tests, plus property-based checks)
 mix dialyzer                      # success-typing analysis (slowest step, especially the first PLT build)
 ```
 
@@ -135,10 +136,28 @@ make the suite faster.
   `set-macro!` call where it's a `def`-time property of the var being
   created -- see `core.logos`'s header comment for the one real
   constraint this has (never mark a helper in `logos.seq`/`logos.map`/
-  `logos.concurrency` `^:private` if a public function/macro in the same
-  file calls it; it would silently break that public function/macro
-  outside its own defining namespace -- Logos has no notion of "a
-  closure's defining namespace" for bare-symbol resolution).
+  `logos.concurrency`/`logos.multimethod`/`logos.set`/`logos.walk`/
+  `logos.string`/`logos.test` `^:private` if a public function/macro in
+  the same file calls it; it would silently break that public
+  function/macro outside its own defining namespace -- Logos has no
+  notion of "a closure's defining namespace" for bare-symbol resolution.
+  A real instance of exactly this bug shipped and was caught by a smoke
+  test during the missing-map/seq-functionality work -- see
+  `CHANGELOG.md`).
+
+  **A sharper version of the same hazard, for a namespace NOT
+  auto-referred into `logos.core`** (`logos.set`/`logos.walk`/
+  `logos.string`/`logos.test` -- see `Logos.Stdlib`'s moduledoc for
+  which four those are and why): being public isn't enough there either.
+  A function in one of these four calling ANOTHER function in the SAME
+  file via a bare reference breaks whenever the caller only did
+  `(require '[logos.set :as set])` (no `:refer`) -- the caller's own
+  scope never pulled the callee in, only the `set/foo` qualified
+  spelling, and the callee's body runs under the CALLER's namespace, not
+  its own defining one. Fix: call it via the fully-qualified
+  `logos.set/foo` (or `logos.walk/foo`/`logos.string/foo`) instead of a
+  bare reference -- see `logos.set`'s own header comment for the full
+  explanation and the actual smoke-test failure this was caught by.
 
 ## Known gaps (honest list)
 
@@ -151,11 +170,15 @@ no exponent number syntax -- are fixed; see CHANGELOG.md. No known
 functional gaps remain as of this pass; if you find one, add it here
 along with the fix, or open an issue.
 
-This section tracks bugs/incompleteness in behavior Logos already
-claims to support. For Clojure features Logos has never claimed to
-support yet (threading macros, destructuring, protocols/multimethods,
-and more), see [ROADMAP.md](ROADMAP.md) instead -- a different kind of
-list, forward-looking rather than a bug list.
+The one-time `ROADMAP.md` (a separate, forward-looking "Clojure features
+Logos has never claimed to support yet" list -- threading macros,
+destructuring, protocols/multimethods, sorted collections/transients,
+and more) has been retired: every item it ever tracked shipped, and
+nothing replaced it as a going-forward list -- this section is now the
+single place to note *any* gap, bug or missing feature alike. If a
+future gap is broad enough to want its own tracked, prioritized list
+again, re-create a roadmap document rather than trying to force it back
+into this section's own narrower "bugs in claimed behavior" shape.
 
 If you fix a gap you add here later, please also update the
 corresponding note in [guides/language/LOGOS.md](guides/language/LOGOS.md)

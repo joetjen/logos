@@ -59,16 +59,22 @@ not a simulated abstraction on top of them.
 - **Eval** (`Logos.Eval`) -- the tree-walking evaluator. Six special forms
   are wired directly into it (`quote`, `cond`, `do`, `def`, `fn`, `try`);
   everything else (`if`, `when`, `unless`, `and`, `or`, `let`, `defn`,
-  `defmacro`, `receive`, ...) is an ordinary macro written in Logos itself,
-  across `priv/stdlib/*.logos` (one namespace per file -- `logos.core`,
-  `logos.seq`, `logos.concurrency`, `logos.test`, plus the primitives-only
-  `logos.map` -- see `Logos.Stdlib`'s moduledoc). `logos.core` refers
-  `logos.seq`/`logos.map`/`logos.concurrency` into itself, so all three
-  are reachable unqualified from anywhere; `logos.test` (`deftest`/
-  `assert`/`assert=`/`assert-throws`/`run-tests`, each test isolated in
-  its own monitored process) is deliberately excluded from that and only
-  available once required explicitly -- testing macros have no business
-  being unqualified-visible in every embedding's production namespaces.
+  `defmacro`, `receive`, `defmulti`, sorted collections, transients, set
+  algebra, tree-walking, string manipulation, ...) is an ordinary macro
+  or function written in Logos itself, across `priv/stdlib/*.logos` (one
+  namespace per file -- `logos.core`, `logos.seq`, `logos.concurrency`,
+  `logos.multimethod`, `logos.set`, `logos.walk`, `logos.string`,
+  `logos.test`, plus the primitives-only `logos.map` -- see
+  `Logos.Stdlib`'s moduledoc). `logos.core` refers `logos.seq`/
+  `logos.map`/`logos.concurrency`/`logos.multimethod` into itself, so
+  all four are reachable unqualified from anywhere; `logos.set`/
+  `logos.walk`/`logos.string`/`logos.test` are deliberately excluded
+  from that and only available once required explicitly, matching real
+  Clojure's own `clojure.set`/`clojure.walk`/`clojure.string`/
+  `clojure.test` being separate, explicitly-required namespaces too --
+  testing macros (and these three) have no business being
+  unqualified-visible in every embedding's production namespaces by
+  default.
 - **Runtime, Namespaces & Vars** (`Logos.Runtime`, `Logos.Namespace`,
   `Logos.Var`) -- each `Logos.Runtime` is its own `:public` ETS-backed
   namespace registry (never a global singleton), so an embedding
@@ -157,9 +163,6 @@ lexical continuity across every form and returns the last value.
   embedded.
 - **[Language examples](guides/language/LOGOS_EXAMPLES.md)** and
   **[Language cheatsheet](guides/language/LOGOS_CHEATSHEET.md)**.
-- **[Roadmap](ROADMAP.md)** -- the prioritized list of Clojure features
-  Logos doesn't have yet, for anyone tracking (or picking up) what's
-  next.
 
 ## Development
 

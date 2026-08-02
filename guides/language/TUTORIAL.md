@@ -121,11 +121,13 @@ with a 10,000,000-iteration test.
 ```
 
 `throw` takes a keyword *tag* and a value; `catch` matches by tag with `=`
-(no class hierarchy). `finally`, if present, always runs. Note: only an
-explicit `(throw ...)` is catchable this way -- some primitive-level
-failures (like division by zero) surface as an `{:error, _}` at the host
-boundary instead of something a Logos-level `try` can intercept; see
-[LOGOS.md](LOGOS.md#10-errors) for the distinction.
+(no class hierarchy). `finally`, if present, always runs. `try`/`catch`
+also catches a primitive-level failure (division by zero, an unbound
+symbol, a wrong arity, ...), not just an explicit `(throw ...)` -- its
+catch tag is *derived* from the failure itself (e.g. `(catch
+:division-by-zero e e)`), or catch `:error` as a wildcard for any
+primitive-level failure; see [LOGOS.md](LOGOS.md#10-errors) for the full
+derivation rules.
 
 ## 7. The stdlib macros: `if`/`let`/`when`/`unless`/`and`/`or`/`defn`
 
@@ -344,8 +346,10 @@ lookup:
 ;;=> {:b 2}
 ```
 
-`get`/`assoc`/`dissoc` and `(:key map)` are scoped to maps (and `nil`) --
-not sets.
+`get` (and `(:key coll)`) also work on a set (membership-as-lookup: the
+element itself if present, `nil`/a given default otherwise) and, for
+`get`/`assoc`, a vector (by index) -- `dissoc` stays map-only, matching
+real Clojure.
 
 ## 11. Concurrency: `spawn`/`send`/`receive`/`atom`
 

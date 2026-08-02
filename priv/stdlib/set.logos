@@ -1,0 +1,99 @@
+;; priv/stdlib/set.logos
+;;
+;; `logos.set` -- set algebra: `union`/`intersection`/`difference`/
+;; `subset?`/`superset?`/`select`/`map-invert`/`rename-keys`. Loaded into
+;; every `Logos.Runtime` (see `Logos.Stdlib`), but -- like real Clojure's
+;; own `clojure.set`, and unlike `logos.seq`/`logos.map`/
+;; `logos.concurrency`/`logos.multimethod` -- deliberately NOT
+;; auto-referred into `logos.core`: real Clojure requires an explicit
+;; `(require '[clojure.set :as set])` too, since `union`/etc. were never
+;; part of `clojure.core`'s own always-available surface. Reachable via
+;; `(require '[logos.set :refer [:all]])` (this project's own spelling
+;; for "refer everything", see `logos.test`'s header comment) or
+;; `(require '[logos.set :as set])` plus `set/union` etc.
+;;
+;; No `project`/`rename`/`index`/`join` (real Clojure's relational-
+;; algebra corner of `clojure.set`, for querying sets-of-maps like
+;; database rows) -- a real, deliberate scope trim: genuinely niche
+;; outside actual in-memory relational querying, unlike the set-algebra
+;; functions above, which are broadly useful for any set. `rename-keys`
+;; is kept despite technically being map- rather than set-shaped (real
+;; Clojure keeps it in `clojure.set` too, historically alongside
+;; `rename`/`index`/`join`) since it's simple and commonly useful on its
+;; own, independent of the relational-algebra functions it usually
+;; travels with.
+;;
+;; **No helper here is `^:private`** -- same reasoning as
+;; `logos.seq`/etc. (see `core.logos`'s header comment).
+;;
+;; **`superset?` calls `subset?` via the fully-qualified
+;; `logos.set/subset?`, not a bare reference** -- a sharper, previously-
+;; undocumented version of the same "no closure's defining namespace"
+;; hazard: `logos.set` is deliberately NOT auto-referred into
+;; `logos.core` (see above), so a namespace that only did `(require
+;; '[logos.set :as set])` (no `:refer`, the *recommended* form for
+;; `logos.string`, see that file's own header comment) has NEVER pulled
+;; `subset?` into its own unqualified-resolution scope -- only the
+;; `set/subset?` qualified spelling. Since `superset?`'s body runs with
+;; whatever namespace *called* `set/superset?` as current (not
+;; `logos.set` itself), a bare `(subset? s2 s1)` inside it would try to
+;; resolve `subset?` against the CALLER's own scope and fail there,
+;; even though `subset?` is public and even though the call site itself
+;; used a perfectly correct qualified reference. The fully-qualified
+;; `logos.set/subset?` sidesteps the whole problem: a qualified lookup
+;; always resolves directly against the literal target namespace,
+;; regardless of caller context (the same mechanism
+;; `logos.core/build-let` already relies on to stay reachable despite
+;; being `^:private`). Confirmed the hard way -- an actual `mix run`
+;; smoke test of `(require '[logos.set :as set]) (set/superset? a b)`
+;; failed with `{:unbound_symbol, "subset?"}` before this fix.
+
+(defn union
+  "The union of `sets` -- every element present in at least one.
+  `(union)` is `#{}`."
+  [& sets]
+  (reduce (fn [acc s] (reduce conj acc (to-list s))) #{} sets))
+(defn intersection
+  "The intersection of `s` and `more` -- only elements present in every
+  one. At least one set (`s`) is required, matching real Clojure."
+  [s & more]
+  (reduce
+    (fn [acc x] (if (every? (fn [s2] (contains? s2 x)) more) acc (disj acc x)))
+    s
+    (to-list s)))
+(defn difference
+  "`s` with every element also present in any of `more` removed."
+  [s & more]
+  (reduce
+    (fn [acc x] (if (some (fn [s2] (contains? s2 x)) more) (disj acc x) acc))
+    s
+    (to-list s)))
+(defn subset?
+  "True if every element of `s1` is also in `s2`."
+  [s1 s2]
+  (every? (fn [x] (contains? s2 x)) (to-list s1)))
+(defn superset?
+  "True if every element of `s2` is also in `s1`."
+  [s1 s2]
+  (logos.set/subset? s2 s1))
+(defn select
+  "The subset of `set` for which `(pred x)` is truthy -- `filter`'s
+  set-preserving cousin: keeps `set`'s own shape (a sorted-set stays
+  sorted), unlike `(list->set (filter pred (to-list set)))`, which
+  would always demote to a plain set."
+  [pred set]
+  (reduce (fn [acc x] (if (pred x) acc (disj acc x))) set (to-list set)))
+(defn map-invert
+  "A new map with `m`'s keys and values swapped: `(map-invert {:a 1 :b
+  2})` => `{1 :a 2 :b}`. If two keys map to the same value, the result
+  keeps whichever one `to-list` visits last."
+  [m]
+  (reduce (fn [acc pair] (assoc acc (first (rest pair)) (first pair))) {} (to-list m)))
+(defn rename-keys
+  "A new map like `m`, but each key present in `kmap` renamed to its
+  paired value; every other key passes through unchanged."
+  [m kmap]
+  (reduce
+    (fn [acc pair] (assoc acc (get kmap (first pair) (first pair)) (first (rest pair))))
+    {}
+    (to-list m)))

@@ -763,6 +763,402 @@ defmodule Logos.StdlibTest do
     end
   end
 
+  describe "get/assoc on a vector" do
+    test "get is index lookup, out-of-range returns default/nil" do
+      assert {:ok, 20, _} = run("(get [10 20 30] 1)")
+      assert {:ok, nil, _} = run("(get [10 20 30] 5)")
+      assert {:ok, :missing, _} = run_kw("(get [10 20 30] 5 :missing)")
+    end
+
+    test "assoc sets an existing index or appends at exactly count" do
+      {:ok, result, _} = run("(assoc [10 20 30] 1 :x)")
+      x_kw = Logos.Keyword.intern("x")
+      assert result == Logos.Vector.new([10, x_kw, 30])
+      {:ok, result, _} = run("(assoc [10 20 30] 3 :append)")
+      append_kw = Logos.Keyword.intern("append")
+      assert result == Logos.Vector.new([10, 20, 30, append_kw])
+    end
+
+    test "assoc past count raises index_out_of_bounds rather than leaving a gap" do
+      assert {:error, {:index_out_of_bounds, 5}} = run("(assoc [10 20 30] 5 :gap)")
+    end
+  end
+
+  describe "get on a set" do
+    test "returns the element itself if present, default/nil otherwise" do
+      assert {:ok, 2, _} = run(~S|(get #{1 2 3} 2)|)
+      assert {:ok, nil, _} = run(~S|(get #{1 2 3} 9)|)
+      assert {:ok, :missing, _} = run_kw(~S|(get #{1 2 3} 9 :missing)|)
+    end
+
+    test "keyword-as-function works on a set too, matching real Clojure" do
+      assert {:ok, :a, _} = run_kw(~S|(:a #{:a :b})|)
+      assert {:ok, :missing, _} = run_kw(~S|(:z #{:a :b} :missing)|)
+    end
+  end
+
+  describe "keys / vals" do
+    test "returns keys/values in the map's own iteration order" do
+      {:ok, ks, _} = run("(keys {:a 1 :b 2})")
+      {:ok, vs, _} = run("(vals {:a 1 :b 2})")
+      assert MapSet.new(ks) == MapSet.new([Logos.Keyword.intern("a"), Logos.Keyword.intern("b")])
+      assert MapSet.new(vs) == MapSet.new([1, 2])
+    end
+
+    test "nil counts as an empty map" do
+      assert {:ok, [], _} = run("(keys nil)")
+      assert {:ok, [], _} = run("(vals nil)")
+    end
+
+    test "throws on a non-map argument, matching real Clojure" do
+      assert {:error, {:uncaught_throw, tag, _}} = run("(keys [1 2 3])")
+      assert %Logos.Keyword{name: "invalid-args"} = tag
+    end
+  end
+
+  describe "contains?" do
+    test "map key, vector index, set membership -- true/false, never the value" do
+      assert {:ok, true, _} = run("(contains? {:a nil} :a)")
+      assert {:ok, false, _} = run("(contains? {:a 1} :z)")
+      assert {:ok, true, _} = run("(contains? [1 2 3] 0)")
+      assert {:ok, false, _} = run("(contains? [1 2 3] 5)")
+      assert {:ok, true, _} = run(~S|(contains? #{1 2 3} 2)|)
+      assert {:ok, false, _} = run(~S|(contains? #{1 2 3} 9)|)
+    end
+
+    test "works on a sorted-map/sorted-set too" do
+      assert {:ok, true, _} = run("(contains? (sorted-map :a 1) :a)")
+      assert {:ok, true, _} = run("(contains? (sorted-set 1 2) 1)")
+    end
+
+    test "nil never contains anything" do
+      assert {:ok, false, _} = run("(contains? nil :a)")
+    end
+  end
+
+  describe "merge / merge-with" do
+    test "later maps win; nil maps skipped; (merge) is nil" do
+      {:ok, result, _} = run("(merge {:a 1} {:a 2 :b 3})")
+      a_kw = Logos.Keyword.intern("a")
+      b_kw = Logos.Keyword.intern("b")
+      assert result == %{a_kw => 2, b_kw => 3}
+      assert {:ok, nil, _} = run("(merge)")
+      {:ok, result, _} = run("(merge nil {:a 1})")
+      assert result == %{a_kw => 1}
+    end
+
+    test "preserves the first non-nil map's own shape (sorted stays sorted)" do
+      {:ok, result, _} = run("(to-list (merge (sorted-map :b 2 :a 1) {:c 3}))")
+      a_kw = Logos.Keyword.intern("a")
+      b_kw = Logos.Keyword.intern("b")
+      c_kw = Logos.Keyword.intern("c")
+      assert result == [[a_kw, 1], [b_kw, 2], [c_kw, 3]]
+    end
+
+    test "merge-with resolves a shared key via f instead of the later map winning outright" do
+      {:ok, result, _} = run("(merge-with + {:a 1 :b 2} {:a 10})")
+      a_kw = Logos.Keyword.intern("a")
+      b_kw = Logos.Keyword.intern("b")
+      assert result == %{a_kw => 11, b_kw => 2}
+    end
+  end
+
+  describe "get-in / assoc-in / update / update-in" do
+    test "get-in walks nested keys, short-circuiting to not-found on a missing step" do
+      assert {:ok, 1, _} = run("(get-in {:a {:b 1}} [:a :b])")
+      assert {:ok, nil, _} = run("(get-in {:a {:b 1}} [:a :z])")
+      assert {:ok, :missing, _} = run_kw("(get-in {:a {:b 1}} [:a :z] :missing)")
+    end
+
+    test "assoc-in creates intermediate maps as needed" do
+      {:ok, result, _} = run("(assoc-in {} [:a :b] 1)")
+      a_kw = Logos.Keyword.intern("a")
+      b_kw = Logos.Keyword.intern("b")
+      assert result == %{a_kw => %{b_kw => 1}}
+    end
+
+    test "update/update-in thread extra args to f" do
+      {:ok, result, _} = run("(update {:a 1} :a + 10)")
+      a_kw = Logos.Keyword.intern("a")
+      assert result == %{a_kw => 11}
+      {:ok, result, _} = run("(update-in {:a {:b 1}} [:a :b] + 10)")
+      b_kw = Logos.Keyword.intern("b")
+      assert result == %{a_kw => %{b_kw => 11}}
+    end
+  end
+
+  describe "select-keys" do
+    test "keeps only the requested keys" do
+      {:ok, result, _} = run("(select-keys {:a 1 :b 2 :c 3} [:a :c])")
+      a_kw = Logos.Keyword.intern("a")
+      c_kw = Logos.Keyword.intern("c")
+      assert result == %{a_kw => 1, c_kw => 3}
+    end
+  end
+
+  describe "take-while / drop-while" do
+    test "splits at the first element the predicate rejects" do
+      assert {:ok, [1, 2], _} = run("(take-while pos? (list 1 2 -1 3))")
+      assert {:ok, [-1, 3], _} = run("(drop-while pos? (list 1 2 -1 3))")
+    end
+  end
+
+  describe "partition / partition-all / partition-by" do
+    test "partition drops a trailing incomplete chunk; partition-all keeps it" do
+      {:ok, result, _} = run("(partition 2 (list 1 2 3 4 5))")
+      assert result == [Logos.Vector.new([1, 2]), Logos.Vector.new([3, 4])]
+      {:ok, result, _} = run("(partition-all 2 (list 1 2 3 4 5))")
+      assert result == [Logos.Vector.new([1, 2]), Logos.Vector.new([3, 4]), Logos.Vector.new([5])]
+    end
+
+    test "a custom step overlaps or skips" do
+      {:ok, result, _} = run("(partition 2 1 (list 1 2 3 4))")
+
+      assert result == [
+               Logos.Vector.new([1, 2]),
+               Logos.Vector.new([2, 3]),
+               Logos.Vector.new([3, 4])
+             ]
+    end
+
+    test "a non-positive n or step throws instead of looping forever" do
+      assert {:error, {:uncaught_throw, tag, _}} = run("(partition 0 (list 1 2 3))")
+      assert %Logos.Keyword{name: "invalid-partition-size"} = tag
+    end
+
+    test "partition-by groups consecutive equal-key elements" do
+      {:ok, result, _} = run("(partition-by even? (list 1 1 2 2 3))")
+
+      assert result == [
+               Logos.Vector.new([1, 1]),
+               Logos.Vector.new([2, 2]),
+               Logos.Vector.new([3])
+             ]
+    end
+  end
+
+  describe "flatten" do
+    test "descends into nested lists/vectors only" do
+      assert {:ok, [1, 2, 3, 4, 5, 6], _} = run("(flatten (list (list 1 2) [3 [4 5]] 6))")
+    end
+
+    test "a non-sequential top-level argument flattens to empty" do
+      assert {:ok, [], _} = run("(flatten 5)")
+    end
+  end
+
+  describe "zipmap / mapcat / interpose / interleave" do
+    test "zipmap pairs positionally, stopping at the shorter" do
+      {:ok, result, _} = run("(zipmap (list :a :b :c) (list 1 2))")
+      a_kw = Logos.Keyword.intern("a")
+      b_kw = Logos.Keyword.intern("b")
+      assert result == %{a_kw => 1, b_kw => 2}
+    end
+
+    test "mapcat concatenates f's per-element results" do
+      assert {:ok, [1, 1, 2, 2], _} = run("(mapcat (fn [x] (list x x)) (list 1 2))")
+    end
+
+    test "interpose inserts sep between every pair" do
+      {:ok, result, _} = run("(interpose :sep (list 1 2 3))")
+      sep_kw = Logos.Keyword.intern("sep")
+      assert result == [1, sep_kw, 2, sep_kw, 3]
+    end
+
+    test "interleave stops at the shortest collection" do
+      {:ok, result, _} = run("(interleave (list 1 2 3) (list :a :b))")
+      a_kw = Logos.Keyword.intern("a")
+      b_kw = Logos.Keyword.intern("b")
+      assert result == [1, a_kw, 2, b_kw]
+      assert {:ok, [], _} = run("(interleave)")
+    end
+  end
+
+  describe "juxt / every-pred / some-fn" do
+    test "juxt collects each fn's result into a vector" do
+      assert {:ok, result, _} = run("((juxt inc dec) 5)")
+      assert result == Logos.Vector.new([6, 4])
+    end
+
+    test "every-pred short-circuits on the first falsy predicate" do
+      assert {:ok, true, _} = run("((every-pred pos? even?) 4)")
+      assert {:ok, false, _} = run("((every-pred pos? even?) 3)")
+    end
+
+    test "some-fn returns the first truthy predicate result" do
+      assert {:ok, true, _} = run("((some-fn even? pos?) 3)")
+    end
+  end
+
+  describe "compare" do
+    test "numbers, cross-tower" do
+      assert {:ok, -1, _} = run("(compare 1 2)")
+      assert {:ok, 0, _} = run("(compare 1 1.0)")
+      assert {:ok, 1, _} = run("(compare 2 1)")
+    end
+
+    test "strings and keywords, lexicographic" do
+      assert {:ok, -1, _} = run(~S|(compare "a" "b")|)
+      assert {:ok, -1, _} = run("(compare :a :b)")
+    end
+
+    test "vectors, elementwise then by length" do
+      assert {:ok, -1, _} = run("(compare [1 2] [1 2 3])")
+      assert {:ok, 1, _} = run("(compare [1 3] [1 2])")
+      assert {:ok, 0, _} = run("(compare [1 2] [1 2])")
+    end
+
+    test "nil sorts least" do
+      assert {:ok, -1, _} = run("(compare nil 1)")
+      assert {:ok, 0, _} = run("(compare nil nil)")
+    end
+
+    test "incomparable types raise" do
+      assert {:error, {:not_comparable, _, _}} = run("(compare {} {})")
+    end
+  end
+
+  describe "logos.seq: sort / sort-by via compare" do
+    test "sort now handles strings (previously numeric-only via <=)" do
+      assert {:ok, ["a", "b", "c"], _} = run(~S|(sort ["b" "a" "c"])|)
+    end
+  end
+
+  describe "logos.seq: disj" do
+    test "removes elements from a set" do
+      {:ok, result, _} = run(~S|(disj #{1 2 3} 2)|)
+      assert result == MapSet.new([1, 3])
+    end
+
+    test "nil stays nil" do
+      assert {:ok, nil, _} = run("(disj nil 1)")
+    end
+
+    test "removing an absent element is a no-op" do
+      {:ok, result, _} = run(~S|(disj #{1 2} 5)|)
+      assert result == MapSet.new([1, 2])
+    end
+  end
+
+  describe "sorted-map / sorted-set" do
+    test "sorted-map keeps entries ordered regardless of insertion order" do
+      {:ok, result, _} = run("(to-list (sorted-map :c 3 :a 1 :b 2))")
+      a = Logos.Keyword.intern("a")
+      b = Logos.Keyword.intern("b")
+      c = Logos.Keyword.intern("c")
+      assert result == [[a, 1], [b, 2], [c, 3]]
+    end
+
+    test "type-of is :sorted-map, distinct from a plain map's :map" do
+      assert {:ok, %Logos.Keyword{name: "sorted-map", ns: nil}, _} = run("(type-of (sorted-map))")
+    end
+
+    test "map?/sorted? both recognize a sorted-map; a plain map isn't sorted?" do
+      assert {:ok, true, _} = run("(map? (sorted-map :a 1))")
+      assert {:ok, true, _} = run("(sorted? (sorted-map :a 1))")
+      assert {:ok, false, _} = run("(sorted? {:a 1})")
+    end
+
+    test "get/assoc/dissoc preserve order and comparator" do
+      assert {:ok, 1, _} = run("(get (sorted-map :a 1) :a)")
+      assert {:ok, :missing, _} = run_kw("(get (sorted-map :a 1) :z :missing)")
+      {:ok, result, _} = run("(to-list (assoc (sorted-map :b 2 :a 1) :aa 99))")
+      a = Logos.Keyword.intern("a")
+      aa = Logos.Keyword.intern("aa")
+      b = Logos.Keyword.intern("b")
+      assert result == [[a, 1], [aa, 99], [b, 2]]
+      {:ok, result, _} = run("(to-list (dissoc (sorted-map :a 1 :b 2) :a))")
+      assert result == [[b, 2]]
+    end
+
+    test "content-equal to a plain hash-map with the same entries" do
+      assert {:ok, true, _} = run("(= (sorted-map :a 1 :b 2) {:b 2 :a 1})")
+    end
+
+    test "keyword-as-function works on a sorted-map" do
+      assert {:ok, 1, _} = run("(:a (sorted-map :a 1 :b 2))")
+    end
+
+    test "sorted-map-by uses a custom comparator" do
+      {:ok, result, _} =
+        run("(to-list (sorted-map-by (fn [a b] (compare b a)) :a 1 :b 2 :c 3))")
+
+      a = Logos.Keyword.intern("a")
+      b = Logos.Keyword.intern("b")
+      c = Logos.Keyword.intern("c")
+      assert result == [[c, 3], [b, 2], [a, 1]]
+    end
+
+    test "sorted-set keeps elements ordered and stays sorted through conj/disj" do
+      assert {:ok, [1, 2, 3], _} = run("(to-list (sorted-set 3 1 2))")
+      assert {:ok, [0, 1, 2, 3], _} = run("(to-list (conj (sorted-set 1 2 3) 0))")
+      assert {:ok, [1, 3], _} = run("(to-list (disj (sorted-set 1 2 3) 2))")
+    end
+
+    test "sorted-set is content-equal to a plain set with the same elements" do
+      assert {:ok, true, _} = run(~S|(= (sorted-set 1 2 3) #{3 2 1})|)
+    end
+
+    test "sorted-set-by uses a custom comparator" do
+      assert {:ok, [3, 2, 1], _} =
+               run("(to-list (sorted-set-by (fn [a b] (compare b a)) 1 2 3))")
+    end
+
+    test "prints like an ordinary map/set, in sorted order" do
+      {:ok, m, _} = run("(sorted-map :b 2 :a 1)")
+      assert Logos.Printer.print(m) == "{:a 1 :b 2}"
+      {:ok, s, _} = run("(sorted-set 3 1 2)")
+      assert Logos.Printer.print(s) == "\#{1 2 3}"
+    end
+  end
+
+  describe "transients" do
+    test "transient vector: conj!/assoc!/pop!/persistent!" do
+      {:ok, result, _} =
+        run("(persistent! (pop! (assoc! (conj! (transient [1 2 3]) 4) 0 99)))")
+
+      assert result == Logos.Vector.new([99, 2, 3])
+    end
+
+    test "transient map: assoc!/dissoc!/persistent!" do
+      {:ok, result, _} = run("(persistent! (dissoc! (assoc! (transient {}) :a 1 :b 2) :a))")
+      b = Logos.Keyword.intern("b")
+      assert result == %{b => 2}
+    end
+
+    test "transient set: conj!/disj!/persistent!" do
+      {:ok, result, _} = run(~S|(persistent! (disj! (conj! (transient #{1 2}) 3) 1))|)
+      assert result == MapSet.new([2, 3])
+    end
+
+    test "get/count read the live transient without persistent!" do
+      assert {:ok, 2, _} = run("(get (transient [1 2 3]) 1)")
+      assert {:ok, 3, _} = run("(count (transient [1 2 3]))")
+      assert {:ok, 1, _} = run("(get (transient {:a 1}) :a)")
+    end
+
+    test "conj!/assoc!/... return the transient itself, chainable" do
+      assert {:ok, true, _} = run("(transient? (conj! (transient [1]) 2))")
+    end
+
+    test "using a transient after persistent! raises a clear, catchable error" do
+      assert {:error, {:transient_used_after_persistent, "conj!"}} =
+               run("""
+               (let [t (transient [1])]
+                 (do (persistent! t) (conj! t 2)))
+               """)
+    end
+
+    test "a mismatched op (e.g. disj! on a transient map) raises invalid_args, not an opaque crash" do
+      assert {:error, {:invalid_args, "disj!", _}} = run("(disj! (transient {}) :a)")
+    end
+
+    test "transient only accepts vectors/maps/sets, matching real Clojure (not sorted collections or lists)" do
+      assert {:error, {:invalid_args, "transient", _}} = run("(transient (sorted-map :a 1))")
+      assert {:error, {:invalid_args, "transient", _}} = run("(transient (list 1 2 3))")
+    end
+  end
+
   describe "defn-" do
     test "defines a private var" do
       runtime = rt()
@@ -1283,6 +1679,217 @@ defmodule Logos.StdlibTest do
       assert result["passed"] == 2
       assert [[name, _reason]] = result["failed"]
       assert %Logos.Symbol{name: "stdlib-test-genuinely-broken"} = name
+    end
+  end
+
+  describe "read-string / pr-str" do
+    test "read-string parses source text into unevaluated data" do
+      assert {:ok, [1, 2, 3], _} = run(~S|(read-string "(1 2 3)")|)
+    end
+
+    test "pr-str is round-trippable (quotes strings), unlike str" do
+      assert {:ok, ~S|"hi"|, _} = run(~S|(pr-str "hi")|)
+      assert {:ok, "hi", _} = run(~S|(str "hi")|)
+    end
+
+    test "pr-str joins multiple arguments with a space" do
+      assert {:ok, "1 :a", _} = run("(pr-str 1 :a)")
+    end
+
+    test "read-string on malformed input raises a catchable error" do
+      assert {:error, {:read_error, _}} = run(~S|(read-string "(1 2")|)
+
+      assert {:ok, :caught, _} =
+               run_kw(~S|(try (read-string "(1 2") (catch :read-error e :caught))|)
+    end
+
+    test "round-trips through read-string . pr-str for ordinary values" do
+      assert {:ok, true, _} =
+               run("""
+               (let [v (list 1 :a "s" [1 2] {:a 1} nil true)]
+                 (= (read-string (pr-str v)) v))
+               """)
+    end
+  end
+
+  describe "logos.set" do
+    test "is loaded into every Runtime but NOT auto-referred into logos.core" do
+      runtime = rt()
+      assert Logos.Namespace.exists?(runtime, "logos.set")
+      assert Logos.Namespace.has_var?(runtime, "logos.set", "union")
+      assert Logos.Namespace.get_refer(runtime, "logos.core", "union") == :error
+      assert {:error, {:unbound_symbol, "union"}} = run(~S|(union #{1} #{2})|, runtime)
+    end
+
+    setup do
+      runtime = rt()
+      {:ok, _, _} = run("(require '[logos.set :refer [:all]])", runtime)
+      {:ok, runtime: runtime}
+    end
+
+    test "union/intersection/difference", %{runtime: runtime} do
+      {:ok, result, _} = run(~S|(union #{1 2} #{2 3})|, runtime)
+      assert result == MapSet.new([1, 2, 3])
+      {:ok, result, _} = run(~S|(intersection #{1 2 3} #{2 3 4})|, runtime)
+      assert result == MapSet.new([2, 3])
+      {:ok, result, _} = run(~S|(difference #{1 2 3} #{2})|, runtime)
+      assert result == MapSet.new([1, 3])
+    end
+
+    test "subset?/superset?", %{runtime: runtime} do
+      assert {:ok, true, _} = run(~S|(subset? #{1 2} #{1 2 3})|, runtime)
+      assert {:ok, false, _} = run(~S|(subset? #{1 2 3} #{1 2})|, runtime)
+      assert {:ok, true, _} = run(~S|(superset? #{1 2 3} #{1 2})|, runtime)
+    end
+
+    test "select keeps a set's own shape (sorted-set stays sorted)", %{runtime: runtime} do
+      {:ok, result, _} = run("(to-list (select even? (sorted-set 1 2 3 4)))", runtime)
+      assert result == [2, 4]
+    end
+
+    test "map-invert / rename-keys", %{runtime: runtime} do
+      {:ok, result, _} = run("(map-invert {:a 1 :b 2})", runtime)
+      a_kw = Logos.Keyword.intern("a")
+      b_kw = Logos.Keyword.intern("b")
+      assert result == %{1 => a_kw, 2 => b_kw}
+      {:ok, result, _} = run("(rename-keys {:a 1 :b 2} {:a :aa})", runtime)
+      aa_kw = Logos.Keyword.intern("aa")
+      assert result == %{aa_kw => 1, b_kw => 2}
+    end
+
+    test "superset? works via qualified access alone (require :as, no :refer) -- regression test for the internal-cross-call bug this file's own header comment documents" do
+      runtime = rt()
+      {:ok, _, _} = run("(require '[logos.set :as set])", runtime)
+      assert {:ok, true, _} = run(~S|(set/superset? #{1 2 3} #{1 2})|, runtime)
+    end
+  end
+
+  describe "logos.walk" do
+    test "is loaded into every Runtime but NOT auto-referred into logos.core" do
+      runtime = rt()
+      assert Logos.Namespace.exists?(runtime, "logos.walk")
+      assert Logos.Namespace.has_var?(runtime, "logos.walk", "walk")
+      assert Logos.Namespace.get_refer(runtime, "logos.core", "walk") == :error
+    end
+
+    setup do
+      runtime = rt()
+      {:ok, _, _} = run("(require '[logos.walk :refer [:all]])", runtime)
+      {:ok, runtime: runtime}
+    end
+
+    test "postwalk transforms every node bottom-up, across every collection type", %{
+      runtime: runtime
+    } do
+      # Built via `vector`/`list`/`list->map` calls, not `[...]`/`{...}`
+      # literal syntax containing a nested `(list ...)` form -- a Logos
+      # collection literal's own elements are never evaluated (unlike
+      # real Clojure), so `[1 (list 3 4)]` would embed the literal,
+      # unevaluated FORM `(list 3 4)`, not the value `(3 4)` -- see
+      # `Logos.Eval.eval/3`'s own moduledoc note on this.
+      {:ok, result, _} =
+        run(
+          """
+          (postwalk (fn [x] (if (number? x) (inc x) x))
+            (vector 1 2 (list 3 4) (list->map (list :a 5))))
+          """,
+          runtime
+        )
+
+      a_kw = Logos.Keyword.intern("a")
+      assert result == Logos.Vector.new([2, 3, [4, 5], %{a_kw => 6}])
+    end
+
+    test "prewalk transforms every node top-down", %{runtime: runtime} do
+      {:ok, result, _} = run("(prewalk (fn [x] (if (number? x) (inc x) x)) [1 [2 3]])", runtime)
+      assert result == Logos.Vector.new([2, Logos.Vector.new([3, 4])])
+    end
+
+    test "a non-collection form goes straight to outer unchanged", %{runtime: runtime} do
+      assert {:ok, 6, _} = run("(walk identity inc 5)", runtime)
+      assert {:ok, nil, _} = run("(walk identity identity nil)", runtime)
+    end
+
+    test "postwalk/prewalk work via qualified access alone (require :as, no :refer) -- regression test for the internal-cross-call bug this file's own header comment documents" do
+      runtime = rt()
+      {:ok, _, _} = run("(require '[logos.walk :as walk])", runtime)
+      assert {:ok, [1, 2], _} = run("(walk/postwalk identity (list 1 2))", runtime)
+      assert {:ok, [1, 2], _} = run("(walk/prewalk identity (list 1 2))", runtime)
+    end
+  end
+
+  describe "logos.string" do
+    test "is loaded into every Runtime but NOT auto-referred into logos.core" do
+      runtime = rt()
+      assert Logos.Namespace.exists?(runtime, "logos.string")
+      assert Logos.Namespace.has_var?(runtime, "logos.string", "upper-case")
+      assert Logos.Namespace.get_refer(runtime, "logos.core", "upper-case") == :error
+    end
+
+    # `:as str`, not `:refer [:all]` -- this file's own header comment's
+    # recommended usage, and the only one that doesn't collide with
+    # `logos.seq`'s own `reverse` (see the dedicated footgun test at the
+    # bottom of this block, which deliberately uses its own separate
+    # runtime and `:refer [:all]` specifically to demonstrate that
+    # collision). Every test below also doubles as the qualified-access
+    # regression case for the internal-cross-call bug this file's own
+    # header comment documents (every wrapper calls its own raw imported
+    # name via a fully-qualified `logos.string/...` reference precisely
+    # so this works).
+    setup do
+      runtime = rt()
+      {:ok, _, _} = run("(require '[logos.string :as str])", runtime)
+      {:ok, runtime: runtime}
+    end
+
+    test "case conversion", %{runtime: runtime} do
+      assert {:ok, "HI", _} = run(~S|(str/upper-case "hi")|, runtime)
+      assert {:ok, "hi", _} = run(~S|(str/lower-case "HI")|, runtime)
+      assert {:ok, "Hello world", _} = run(~S|(str/capitalize "hello world")|, runtime)
+    end
+
+    test "trimming", %{runtime: runtime} do
+      assert {:ok, "hi  ", _} = run(~S|(str/triml "  hi  ")|, runtime)
+      assert {:ok, "  hi", _} = run(~S|(str/trimr "  hi  ")|, runtime)
+    end
+
+    test "includes?/starts-with?/ends-with?/blank?", %{runtime: runtime} do
+      assert {:ok, true, _} = run(~S|(str/includes? "hello" "ell")|, runtime)
+      assert {:ok, false, _} = run(~S|(str/includes? "hello" "zz")|, runtime)
+      assert {:ok, true, _} = run(~S|(str/starts-with? "hello" "he")|, runtime)
+      assert {:ok, true, _} = run(~S|(str/ends-with? "hello" "lo")|, runtime)
+      assert {:ok, true, _} = run(~S|(str/blank? "   ")|, runtime)
+      assert {:ok, true, _} = run(~S|(str/blank? nil)|, runtime)
+      assert {:ok, false, _} = run(~S|(str/blank? "x")|, runtime)
+    end
+
+    test "join/split-lines", %{runtime: runtime} do
+      assert {:ok, "1,2,3", _} = run(~S|(str/join "," (list 1 2 3))|, runtime)
+      assert {:ok, "", _} = run(~S|(str/join "," (list))|, runtime)
+      assert {:ok, ["a", "b", "c"], _} = run(~S|(str/split-lines "a\nb\nc")|, runtime)
+    end
+
+    test "replace/reverse (string) via the directly-imported raw Elixir name", %{
+      runtime: runtime
+    } do
+      assert {:ok, "heLLo", _} = run(~S|(str/replace "hello" "l" "L")|, runtime)
+      assert {:ok, "olleh", _} = run(~S|(str/reverse "hello")|, runtime)
+    end
+
+    test "logos.string's own reverse shadows logos.seq's reverse when :refer [:all]'d -- the documented footgun this file's own header comment warns about (real Clojure has the identical one)" do
+      # `interpose` (logos.seq) calls `reverse` internally; once
+      # logos.string's string-reversal `reverse` is referred into `user`
+      # too (via `:refer [:all]`, unlike this describe block's own
+      # `:as str` setup above), that internal call resolves to the WRONG
+      # `reverse` -- this is the exact, expected, documented consequence
+      # of `:refer [:all]`-ing logos.string instead of using `:as str`,
+      # not a bug. A separate runtime from the shared `:as str` setup
+      # above specifically to demonstrate it in isolation.
+      runtime = rt()
+      {:ok, _, _} = run("(require '[logos.string :refer [:all]])", runtime)
+
+      assert {:error, {:host_fn_error, String, :reverse, _}} =
+               run("(interpose :x (list 1 2 3))", runtime)
     end
   end
 

@@ -14,6 +14,14 @@ defmodule Logos.Stdlib do
       `atom`/`deref`/`swap!`/`reset!`)
     * `priv/stdlib/multimethod.logos` -> `logos.multimethod`
       (`defmulti`/`defmethod`)
+    * `priv/stdlib/set.logos` -> `logos.set` (`union`/`intersection`/
+      `difference`/`subset?`/`superset?`/`select`/`map-invert`/
+      `rename-keys`)
+    * `priv/stdlib/walk.logos` -> `logos.walk` (`walk`/`postwalk`/
+      `prewalk`)
+    * `priv/stdlib/string.logos` -> `logos.string` (Clojure-idiomatic
+      wrappers over allowlisted `String.*` Elixir functions -- see that
+      file's own header comment)
     * `priv/stdlib/test.logos` -> `logos.test` (`deftest`/`assert`/
       `assert=`/`assert-throws`/`run-tests`)
 
@@ -25,12 +33,11 @@ defmodule Logos.Stdlib do
   pipeline any other Logos source goes through -- no shortcut that
   bypasses it) with the current namespace temporarily switched to its own
   target namespace, so every `def`/`defmacro` in it interns there rather
-  than into `logos.core`. `core.logos` loads first: `logos.seq`/
-  `logos.map`/`logos.concurrency`/`logos.test` all implicitly refer
-  `logos.core` (the same `auto_refer_core?` mechanism `user` and every
-  other namespace get, see `Logos.Namespace`'s moduledoc), so their own
-  source can freely use `defn`/`let`/`if`/etc. unqualified without
-  loading order mattering beyond "core first."
+  than into `logos.core`. `core.logos` loads first: every other namespace
+  below implicitly refers `logos.core` (the same `auto_refer_core?`
+  mechanism `user` and every other namespace get, see `Logos.Namespace`'s
+  moduledoc), so their own source can freely use `defn`/`let`/`if`/etc.
+  unqualified without loading order mattering beyond "core first."
 
   After every file loads, `load!/1` refers `logos.seq`/`logos.map`/
   `logos.concurrency`/`logos.multimethod`'s public vars *into*
@@ -41,12 +48,17 @@ defmodule Logos.Stdlib do
   or `get` reachable unqualified from `user` or any other namespace --
   exactly the same "usable everywhere with no namespace prefix" property
   `first`/`let`/`defn` already had when everything lived in one file.
-  **`logos.test` is deliberately excluded from this refer-into-core
-  step** -- unlike the other three, it's loaded into every `Runtime` but
-  only reachable once a caller explicitly `(require '[logos.test :refer
-  :all])`s it (see that file's own header comment for why `:refer :all`
-  specifically), the same way `clojure.test` is never auto-available in
-  `clojure.core`.
+  **`logos.set`/`logos.walk`/`logos.string`/`logos.test` are deliberately
+  excluded from this refer-into-core step** -- each is loaded into every
+  `Runtime` but only reachable once a caller explicitly `(require
+  '[logos.set :refer [:all]])`s it (or the `logos.test`-style equivalent
+  for the other three), matching real Clojure exactly: `clojure.set`/
+  `clojure.walk`/`clojure.string`/`clojure.test` are all separate,
+  explicitly-required namespaces there too, never part of
+  `clojure.core`'s own always-available surface -- unlike
+  `clojure.core`'s own multimethod/protocol machinery, which is why
+  `logos.multimethod` (mirroring that) *is* auto-referred, alongside
+  `logos.seq`/`logos.map`/`logos.concurrency`.
   """
 
   alias Logos.{Env, Eval, Macroexpand, Namespace, Reader, Runtime}
@@ -60,6 +72,9 @@ defmodule Logos.Stdlib do
     {"logos.seq", "seq.logos"},
     {"logos.concurrency", "concurrency.logos"},
     {"logos.multimethod", "multimethod.logos"},
+    {"logos.set", "set.logos"},
+    {"logos.walk", "walk.logos"},
+    {"logos.string", "string.logos"},
     {"logos.test", "test.logos"}
   ]
 
@@ -70,8 +85,9 @@ defmodule Logos.Stdlib do
   @sources Map.new(@files, fn {ns, file} -> {ns, File.read!(Path.join(@stdlib_dir, file))} end)
 
   # `logos.map` is primitives-only (see moduledoc) but still needs to be
-  # in the post-load refer-into-core step below. `logos.test` is
-  # deliberately NOT in this list -- see moduledoc.
+  # in the post-load refer-into-core step below. `logos.set`/
+  # `logos.walk`/`logos.string`/`logos.test` are deliberately NOT in
+  # this list -- see moduledoc.
   @refer_into_core ~w(logos.seq logos.map logos.concurrency logos.multimethod)
 
   @doc "The raw source text for `ns`'s `.logos` file (one of the namespaces in `@files` above), embedded at compile time."

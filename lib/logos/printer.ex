@@ -21,10 +21,16 @@ defmodule Logos.Printer do
   prints in a shape `Logos.Reader.read/1` can read back to an `==`-equal
   value -- see `test/logos/printer_test.exs` for the actual round-trip
   proofs, one per reader-producible type, including nested/empty
-  collections. The three runtime-only `Logos.Value.t()` cases (`Fn`,
-  `Atom`, `Pid`) print in Clojure's own informative `#<...>` convention
-  instead, deliberately *not* readable back (there is no reader syntax
-  for any of them -- see `Logos.Form.t()`'s own moduledoc).
+  collections. The four runtime-only `Logos.Value.t()` cases (`Fn`,
+  `Atom`, `Pid`, `Transient`) print in Clojure's own informative `#<...>`
+  convention instead, deliberately *not* readable back (there is no
+  reader syntax for any of them -- see `Logos.Form.t()`'s own moduledoc).
+  `SortedMap`/`SortedSet` are a narrower case, same category as
+  `Record` below: real reader-producible shapes (`{...}`/`\#{...}`), just
+  produced by a runtime-only value type rather than the reader itself --
+  they print exactly like an ordinary map/set (in sorted order), reading
+  back as one, never round-tripping to their own sorted type (matching
+  real Clojure).
 
   ## Arbitrary-magnitude floats
 
@@ -38,7 +44,20 @@ defmodule Logos.Printer do
   `Float.to_string/1`'s plain-decimal range.
   """
 
-  alias Logos.{Atom, Char, Fn, Keyword, Pid, Ratio, Record, Symbol, Vector}
+  alias Logos.{
+    Atom,
+    Char,
+    Fn,
+    Keyword,
+    Pid,
+    Ratio,
+    Record,
+    SortedMap,
+    SortedSet,
+    Symbol,
+    Transient,
+    Vector
+  }
 
   @doc "Prints `value` to its textual form."
   @spec print(term()) :: String.t()
@@ -67,6 +86,18 @@ defmodule Logos.Printer do
 
   def print(%MapSet{} = set), do: "\#{" <> Enum.map_join(set, " ", &print/1) <> "}"
 
+  # Same shape as an ordinary map/set (`{...}`/`\#{...}`), just walked in
+  # `entries`' already-sorted order -- no dedicated reader syntax,
+  # matching real Clojure exactly: `(pr-str (sorted-map :a 1))` also
+  # reads back as an ordinary hash-map, not a sorted one.
+  def print(%SortedMap{entries: entries}) do
+    inner = entries |> Enum.flat_map(fn {k, v} -> [k, v] end) |> Enum.map_join(" ", &print/1)
+    "{" <> inner <> "}"
+  end
+
+  def print(%SortedSet{entries: entries}),
+    do: "\#{" <> Enum.map_join(entries, " ", &print/1) <> "}"
+
   # ---- runtime-only, non-round-trippable ----------------------------------
 
   # `#type-kw{...}` -- Clojure prints `#user.Point{...}` (a dotted class
@@ -84,6 +115,7 @@ defmodule Logos.Printer do
   def print(%Fn{} = f), do: "#<Fn " <> arity_desc(f) <> ">"
   def print(%Atom{pid: pid}), do: "#<Atom " <> inspect(pid) <> ">"
   def print(%Pid{pid: pid}), do: "#<Pid " <> inspect(pid) <> ">"
+  def print(%Transient{}), do: "#<Transient>"
 
   def print(other), do: "#<" <> inspect(other) <> ">"
 

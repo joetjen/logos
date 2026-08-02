@@ -171,7 +171,8 @@
 (def ^:private destructure-map
   "`{:keys [a b]}`/`{name :key}`/`{:as whole}` -- binds a fresh temp to
   `value` first, then walks `pattern`'s entries against it. Does NOT
-  support `:strs`/`:syms`/`:or` (default values) -- see ROADMAP.md."
+  support `:strs`/`:syms`/`:or` (default values) -- a real, deliberate
+  scope trim, not an oversight; revisit if it turns out to matter."
   (fn [pattern value]
     ((fn [g] (concat (list g value) (destructure-map-entries (to-list pattern) g)))
       (gensym "map"))))
@@ -240,8 +241,7 @@
   `:keys`/explicit/`:as`), nested patterns included. `fn`/`defmacro`
   don't support this in their own param positions (only `let`/`defn`/
   `defn-` do, all macros that can expand patterns before handing a
-  plain-symbol-only params list to the real `fn` special form) -- see
-  ROADMAP.md."
+  plain-symbol-only params list to the real `fn` special form)."
   [bindings & body]
   (build-let (to-list bindings) body))
 ;; ---- if -----------------------------------------------------------------------
@@ -509,13 +509,22 @@
   [x]
   (= (type-of x) :vector))
 (defn map?
-  "True if `x` is a Logos map (`{...}`)."
+  "True if `x` is a Logos map (`{...}`) or sorted map (`sorted-map`)."
   [x]
-  (= (type-of x) :map))
+  (let [t (type-of x)] (or (= t :map) (= t :sorted-map))))
 (defn set?
-  "True if `x` is a Logos set (`#{...}`)."
+  "True if `x` is a Logos set (`#{...}`) or sorted set (`sorted-set`)."
   [x]
-  (= (type-of x) :set))
+  (let [t (type-of x)] (or (= t :set) (= t :sorted-set))))
+(defn sorted?
+  "True if `x` is a sorted-map or sorted-set (`sorted-map`/`sorted-set`/
+  `sorted-map-by`/`sorted-set-by`)."
+  [x]
+  (let [t (type-of x)] (or (= t :sorted-map) (= t :sorted-set))))
+(defn transient?
+  "True if `x` is a transient (`transient`)."
+  [x]
+  (= (type-of x) :transient))
 (defn decimal?
   "True if `x` is a Logos decimal (`10.99M`)."
   [x]
@@ -733,6 +742,22 @@
   prepended to whatever arguments it's later called with."
   [f & preset]
   (fn [& more] (apply f (concat preset more))))
+(defn juxt
+  "`((juxt f g h) x ...)` applies each of `fns` to the same arguments,
+  collecting the results into a vector: `((juxt inc dec) 5)` => `[6 4]`."
+  [& fns]
+  (fn [& args] (list->vector (map (fn [f] (apply f args)) fns))))
+(defn every-pred
+  "`((every-pred f g) x ...)` is true only if EVERY of `preds` is truthy
+  for the same arguments (short-circuiting via `every?`)."
+  [& preds]
+  (fn [& args] (every? (fn [p] (apply p args)) preds)))
+(defn some-fn
+  "`((some-fn f g) x ...)` returns the first truthy `(pred x ...)`
+  result across `preds` (short-circuiting via `some`), or `nil` if
+  none."
+  [& preds]
+  (fn [& args] (some (fn [p] (apply p args)) preds)))
 ;; ---- case / condp -----------------------------------------------------------------
 ;; Both pure macros over `cond`/`if`, same spirit as `if` itself. `case`'s
 ;; own test values are never evaluated (compared as literal data via

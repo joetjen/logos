@@ -8,11 +8,12 @@ defmodule Logos.LogosScriptsTest do
 
   Each script `(require '[logos.test :refer [:all]])` (`logos.test` is
   loaded into every `Logos.Runtime` by `Logos.Stdlib.load!/1`, same as
-  `logos.seq`/`logos.map`/`logos.concurrency`, but -- unlike those three
-  -- not auto-referred into `logos.core`, so every script requires it
-  explicitly), registers its scenarios with `deftest`, and ends with
-  `(run-tests)`. Because each `deftest` body runs isolated in its own
-  monitored process (see `logos.test`'s moduledoc), a failing assertion
+  `logos.seq`/`logos.map`/`logos.concurrency`/`logos.multimethod`, but --
+  unlike those four -- not auto-referred into `logos.core`, so every
+  script requires it explicitly), registers its scenarios with
+  `deftest`, and ends with `(run-tests)`. Because each `deftest` body
+  runs isolated in its own monitored process (see `logos.test`'s
+  moduledoc), a failing assertion
   no longer makes the whole script's evaluation return `{:error, _}` the
   way it would have with a flat, top-level `assert`/`assert=` sequence --
   `run-tests` catches it and reports it in its returned summary map

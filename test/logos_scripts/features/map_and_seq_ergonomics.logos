@@ -1,0 +1,81 @@
+;; Feature test: the missing-functionality audit batch -- `get`/`assoc`
+;; on vectors, `get` (and keyword-as-function) on sets, `contains?`,
+;; `keys`/`vals`, `merge`/`merge-with`, `get-in`/`assoc-in`/`update`/
+;; `update-in`, `select-keys`, `take-while`/`drop-while`, `partition`/
+;; `partition-all`/`partition-by`, `flatten`, `zipmap`/`mapcat`/
+;; `interpose`/`interleave`, `juxt`/`every-pred`/`some-fn`.
+
+(require '[logos.test :refer [:all]])
+(deftest vector-get-and-assoc
+  (do
+    (assert= (get [10 20 30] 1) 20)
+    (assert= (get [10 20 30] 5) nil)
+    (assert= (get [10 20 30] 5 :missing) :missing)
+    (assert= (assoc [10 20 30] 1 :x) [10 :x 30])
+    (assert= (assoc [10 20 30] 3 :append) [10 20 30 :append])
+    (assert-throws :index-out-of-bounds (assoc [10 20 30] 5 :gap))))
+(deftest set-get-and-keyword-as-function
+  (do
+    (assert= (get #{1 2 3} 2) 2)
+    (assert= (get #{1 2 3} 9) nil)
+    (assert= (:a #{:a :b}) :a)
+    (assert= (:z #{:a :b} :missing) :missing)))
+(deftest keys-and-vals
+  (do
+    (assert= (keys nil) ())
+    (assert= (vals nil) ())
+    (assert (= (into #{} (keys {:a 1 :b 2})) #{:a :b}))
+    (assert (= (into #{} (vals {:a 1 :b 2})) #{1 2}))))
+(deftest contains-predicate
+  (do
+    (assert (contains? {:a nil} :a))
+    (assert (not (contains? {:a 1} :z)))
+    (assert (contains? [1 2 3] 0))
+    (assert (not (contains? [1 2 3] 5)))
+    (assert (contains? #{1 2 3} 2))
+    (assert (not (contains? nil :a)))))
+(deftest merge-and-merge-with
+  (do
+    (assert= (merge {:a 1} {:a 2 :b 3}) {:a 2 :b 3})
+    (assert= (merge) nil)
+    (assert= (merge nil {:a 1}) {:a 1})
+    (assert= (to-list (merge (sorted-map :b 2 :a 1) {:c 3})) (list (list :a 1) (list :b 2) (list :c 3)))
+    (assert= (merge-with + {:a 1 :b 2} {:a 10}) {:a 11 :b 2})))
+(deftest nested-map-access
+  (do
+    (assert= (get-in {:a {:b 1}} [:a :b]) 1)
+    (assert= (get-in {:a {:b 1}} [:a :z] :missing) :missing)
+    (assert= (assoc-in {} [:a :b] 1) {:a {:b 1}})
+    (assert= (update {:a 1} :a + 10) {:a 11})
+    (assert= (update-in {:a {:b 1}} [:a :b] + 10) {:a {:b 11}})))
+(deftest select-keys-test
+  (assert= (select-keys {:a 1 :b 2 :c 3} [:a :c]) {:a 1 :c 3}))
+(deftest take-while-and-drop-while
+  (do
+    (assert= (take-while pos? (list 1 2 -1 3)) (list 1 2))
+    (assert= (drop-while pos? (list 1 2 -1 3)) (list -1 3))))
+(deftest partition-family
+  (do
+    (assert= (partition 2 (list 1 2 3 4 5)) (list [1 2] [3 4]))
+    (assert= (partition-all 2 (list 1 2 3 4 5)) (list [1 2] [3 4] [5]))
+    (assert= (partition 2 1 (list 1 2 3 4)) (list [1 2] [2 3] [3 4]))
+    (assert= (partition-by even? (list 1 1 2 2 3)) (list [1 1] [2 2] [3]))
+    (assert-throws :invalid-partition-size (partition 0 (list 1 2 3)))))
+(deftest flatten-test
+  (do
+    (assert= (flatten (list (list 1 2) [3 [4 5]] 6)) (list 1 2 3 4 5 6))
+    (assert= (flatten 5) ())))
+(deftest zipmap-mapcat-interpose-interleave
+  (do
+    (assert= (zipmap (list :a :b) (list 1 2)) {:a 1 :b 2})
+    (assert= (mapcat (fn [x] (list x x)) (list 1 2)) (list 1 1 2 2))
+    (assert= (interpose :sep (list 1 2 3)) (list 1 :sep 2 :sep 3))
+    (assert= (interleave (list 1 2) (list :a :b)) (list 1 :a 2 :b))
+    (assert= (interleave) ())))
+(deftest juxt-every-pred-some-fn
+  (do
+    (assert= ((juxt inc dec) 5) [6 4])
+    (assert ((every-pred pos? even?) 4))
+    (assert (not ((every-pred pos? even?) 3)))
+    (assert ((some-fn even? pos?) 3))))
+(run-tests)

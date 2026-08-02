@@ -163,6 +163,24 @@ A macro's implicit `&form` argument, for instance, is always plain
 itself -- see [section 5](#5-namespaces-and-vars)) and `Namespace`s are
 runtime bookkeeping, not values a Logos program manipulates directly.
 
+**A vector/map/set literal's own elements are never evaluated -- a real,
+deliberate divergence from Clojure, easy to miss.** In real Clojure,
+`[1 (+ 1 1)]` evaluates to `[1 2]` (a symbol or call form nested inside a
+vector/map/set literal gets resolved/evaluated same as anywhere else).
+In Logos, every vector/map/set literal is "self-evaluating"
+*element-wise*, not just as a whole: `[1 (+ 1 1)]` evaluates to itself
+verbatim, a two-element vector whose second element is the literal,
+unevaluated list `(+ 1 1)` -- not the value `2`. `(let [x 5] [1 x])`
+likewise evaluates to a vector containing the literal symbol `x`, not
+`[1 5]`. Only *list* forms `(f a b)` are ever evaluated (as a call); the
+special forms (`quote`/`cond`/`do`/`def`/`fn`/`try`) and every macro are
+also plain lists under the hood, which is exactly why this asymmetry
+exists -- see `Logos.Eval.eval/3`'s own moduledoc note, which this
+paragraph mirrors. To build a vector/map/set with *computed* content,
+call the `vector`/`list->vector`/`list->map`/`list->set` primitives (or
+a macro built on them, like syntax-quote's own `` ` ``/`~`/`~@`, section
+6.2) instead of writing literal syntax around the computed parts.
+
 ## 3. Special forms
 
 Exactly six forms are wired directly into `Logos.Eval` -- everything else
@@ -492,7 +510,7 @@ as ordinary symbols with no grammar changes.
 
 ## 7. The stdlib layer
 
-Loaded from four `.logos` files under `priv/stdlib/` (plus one
+Loaded from eight `.logos` files under `priv/stdlib/` (plus one
 primitives-only namespace with no file of its own) by
 `Logos.Stdlib.load!/1` (which `Logos.new_runtime/1` calls automatically).
 Real dogfooding: the whole reader -> macroexpand -> eval pipeline runs
@@ -500,11 +518,14 @@ over each file's own source at startup.
 
 | File | Namespace | Contents |
 |---|---|---|
-| `core.logos` | `logos.core` | `defmacro` bootstrap, `let`, `if`, `when`, `unless`, `and`, `or`, `defn`, `defn-`, `doc`, `ns`, `case`, `condp`, `binding`, `defrecord` |
-| `seq.logos` | `logos.seq` | `map`, `filter`, `reduce`, `take`, `drop`, `reverse`, `count`, `empty?`, `nth`, `second`, `last`, `some`, `every?`, `distinct`, `sort`, `sort-by`, `frequencies`, `group-by`, `range`, `repeat`, `conj`, `peek`, `pop`, `into` -- every `coll` argument accepts list/vector/map/set/`nil` |
+| `core.logos` | `logos.core` | `defmacro` bootstrap, `let`, `if`, `when`, `unless`, `and`, `or`, `defn`, `defn-`, `doc`, `ns`, `case`, `condp`, `binding`, `defrecord`, `sorted?`, `transient?`, `read-string`, `pr-str` |
+| `seq.logos` | `logos.seq` | `map`, `filter`, `reduce`, `take`, `take-while`, `drop`, `drop-while`, `reverse`, `count`, `empty?`, `nth`, `second`, `last`, `some`, `every?`, `distinct`, `sort`, `sort-by`, `frequencies`, `group-by`, `range`, `repeat`, `conj`, `disj`, `peek`, `pop`, `into`, `keys`, `vals`, `contains?`, `merge`, `merge-with`, `get-in`, `assoc-in`, `update`, `update-in`, `select-keys`, `partition`, `partition-all`, `partition-by`, `flatten`, `zipmap`, `mapcat`, `interpose`, `interleave` -- every `coll` argument accepts list/vector/map/set/sorted-map/sorted-set/`nil` |
 | `concurrency.logos` | `logos.concurrency` | `receive`, `atom`, `deref`, `swap!`, `reset!` |
 | -- (primitives only, no `.logos` file) | `logos.map` | `get`, `assoc`, `dissoc` |
 | `multimethod.logos` | `logos.multimethod` | `defmulti`, `defmethod` -- see 7.5; `defprotocol`, `extend-type` -- see 7.7 |
+| `set.logos` | `logos.set` | `union`, `intersection`, `difference`, `subset?`, `superset?`, `select`, `map-invert`, `rename-keys` -- see 7.10 |
+| `walk.logos` | `logos.walk` | `walk`, `postwalk`, `prewalk` -- see 7.11 |
+| `string.logos` | `logos.string` | Clojure-idiomatic string manipulation -- see 7.12 |
 | `test.logos` | `logos.test` | `deftest`, `assert`, `assert=`, `assert-throws`, `run-tests` -- see 7.2 |
 
 `Logos.Stdlib.load!/1` refers `logos.seq`, `logos.concurrency`,
@@ -513,10 +534,16 @@ so every function/macro in those four is reachable unqualified from any
 namespace, exactly as if it were all one file -- the split is purely an
 organizational detail of the implementation, not something calling code
 needs to think about.
-**`logos.test` is deliberately excluded from this** -- testing macros
-have no business being unqualified-visible in every embedding's
-production namespaces, so it's only reachable once required explicitly
-(see 7.2).
+**`logos.set`/`logos.walk`/`logos.string`/`logos.test` are deliberately
+excluded from this** -- matching real Clojure exactly: `clojure.set`/
+`clojure.walk`/`clojure.string`/`clojure.test` are all separate,
+explicitly-required namespaces there too, never part of `clojure.core`'s
+own always-available surface (unlike `clojure.core`'s own multimethod/
+protocol machinery, which is why `logos.multimethod` *is* in the
+auto-referred four). Each is reachable once required explicitly, e.g.
+`(require '[logos.set :refer [:all]])` or `(require '[logos.set :as
+set])` plus `set/union` etc. -- see 7.10/7.11/7.12 for the three new
+ones, 7.2 for `logos.test`.
 
 | Name | Kind | Signature | Notes |
 |---|---|---|---|
@@ -537,27 +564,43 @@ production namespaces, so it's only reachable once required explicitly
 | `filter` | fn | `(filter pred coll)` | |
 | `reduce` | fn | `(reduce f coll)` / `(reduce f init coll)` | see below |
 | `take` | fn | `(take n coll)` | |
+| `take-while` | fn | `(take-while pred coll)` | leading elements while `(pred x)` is truthy |
 | `drop` | fn | `(drop n coll)` | |
+| `drop-while` | fn | `(drop-while pred coll)` | drops leading elements while `(pred x)` is truthy |
 | `reverse` | fn | `(reverse coll)` | |
 | `count` | fn | `(count coll)` | |
 | `empty?` | fn | `(empty? coll)` | true for `nil`/`()`/`[]`/`{}`/`#{}` |
 | `into` | fn | `(into to from)` | `to`'s shape wins (prepend/append/union/assoc) |
+| `keys` `vals` | fn | `(keys coll)` `(vals coll)` | map/sorted-map only (throws otherwise, matching Clojure) |
+| `contains?` | fn | `(contains? coll k)` | map/sorted-map key, vector index (bounds-checked), or set/sorted-set membership; `nil` never contains anything |
+| `merge` `merge-with` | fn | `(merge & maps)` `(merge-with f & maps)` | later map wins (or `(f old new)` resolves a shared key); preserves the first map's own shape, e.g. sorted stays sorted |
+| `get-in` `assoc-in` | fn | `(get-in coll ks)` / `(get-in coll ks not-found)`, `(assoc-in coll ks v)` | nested `get`/`assoc`; `assoc-in` creates intermediate maps |
+| `update` `update-in` | fn | `(update coll k f & args)` `(update-in coll ks f & args)` | `(assoc coll k (f (get coll k) & args))`, nested for `-in` |
+| `select-keys` | fn | `(select-keys coll ks)` | a new map with only `coll`'s entries whose key is in `ks` |
 | `nth` | fn | `(nth coll n)` / `(nth coll n not-found)` | 2-arity throws `:index-out-of-bounds`; 3-arity returns `not-found` |
 | `second` | fn | `(second coll)` | `nil` if `coll` has fewer than 2 elements |
 | `last` | fn | `(last coll)` | `nil` if `coll` is empty |
 | `some` | fn | `(some pred coll)` | first truthy `(pred x)` result, or `nil` |
 | `every?` | fn | `(every? pred coll)` | vacuously `true` on an empty `coll` |
 | `distinct` | fn | `(distinct coll)` | first occurrence kept, order preserved; O(n^2) |
-| `sort` | fn | `(sort coll)` | ascending via `<=`; O(n^2) insertion sort |
+| `sort` | fn | `(sort coll)` | ascending via `compare`; O(n^2) insertion sort |
 | `sort-by` | fn | `(sort-by keyfn coll)` | compares `(keyfn x)` instead of `x` |
 | `frequencies` | fn | `(frequencies coll)` | a map of element -> count |
 | `group-by` | fn | `(group-by f coll)` | a map of `(f x)` -> a *vector* of matches, in order |
 | `range` | fn | `(range end)` / `(range start end)` / `(range start end step)` | eager/bounded, not Clojure's lazy-infinite form; `0` step throws |
 | `repeat` | fn | `(repeat n x)` | `n` copies of `x`; no unbounded 1-arity form (needs real laziness) |
-| `conj` | fn | `(conj coll & xs)` | adds each of `xs`, in `coll`'s own natural position -- `into`'s one-at-a-time cousin |
+| `conj` | fn | `(conj coll & xs)` | adds each of `xs`, in `coll`'s own natural position -- `into`'s one-at-a-time cousin; a sorted-set target stays sorted |
+| `disj` | fn | `(disj coll & xs)` | removes each of `xs` from set `coll` (or a sorted-set, staying sorted); `nil` is a no-op |
 | `peek` | fn | `(peek coll)` | front for a list, back for a vector |
 | `pop` | fn | `(pop coll)` | rest for a list, all-but-last for a vector |
-| `nil?` `list?` `vector?` `map?` `set?` `number?` `decimal?` | fn | `(nil? x)` etc. | pure Logos, each `(= (type-of x) :tag)` |
+| `partition` `partition-all` | fn | `(partition n coll)` / `(partition n step coll)` (`-all` also 2/3-arity) | chunks into vectors; `-all` keeps a short trailing chunk, plain `partition` drops it; non-positive `n`/`step` throws `:invalid-partition-size` |
+| `partition-by` | fn | `(partition-by f coll)` | chunks consecutive elements sharing `(f x)` |
+| `flatten` | fn | `(flatten coll)` | descends into nested lists/vectors only; non-sequential top-level arg -> `()` |
+| `zipmap` | fn | `(zipmap ks vs)` | pairs positionally, stops at the shorter |
+| `mapcat` | fn | `(mapcat f coll)` | `(apply concat (map f coll))`; single-collection only |
+| `interpose` | fn | `(interpose sep coll)` | `sep` between every pair of `coll`'s elements |
+| `interleave` | fn | `(interleave & colls)` | interleaves elements, stopping at the shortest `coll` |
+| `nil?` `list?` `vector?` `map?` `set?` `number?` `decimal?` `sorted?` `transient?` | fn | `(nil? x)` etc. | pure Logos, each `(= (type-of x) :tag)`; `map?`/`set?` also accept the sorted variant, see 7.8 |
 | `->` `->>` | macro | `(-> x form...)` `(->> x form...)` | threading, see 7.3 |
 | `some->` `some->>` | macro | `(some-> x form...)` `(some->> x form...)` | threading, nil short-circuit, see 7.3 |
 | `as->` | macro | `(as-> expr name form...)` | threading, `name` in any position, see 7.3 |
@@ -573,6 +616,9 @@ production namespaces, so it's only reachable once required explicitly
 | `min` `max` | fn | `(min a & more)` `(max a & more)` | variadic, ratio-/decimal-aware via `<`/`>` |
 | `comp` | fn | `(comp f g h)` | returns a function calling `h` then `g` then `f` |
 | `partial` | fn | `(partial f a b)` | returns a function calling `f` with `a`/`b` prepended |
+| `juxt` | fn | `(juxt f g h)` | `((juxt inc dec) 5)` => `[6 4]` |
+| `every-pred` | fn | `(every-pred f g)` | true only if every predicate is truthy (short-circuiting) |
+| `some-fn` | fn | `(some-fn f g)` | first truthy predicate result, or `nil` |
 | `defmulti` | macro | `(defmulti name dispatch-fn)` | ad-hoc polymorphism, see 7.5 |
 | `defmethod` | macro | `(defmethod name dispatch-val [params...] body...)` | see 7.5 |
 | `binding` | macro | `(binding [*a* v1 *b* v2 ...] body...)` | thread-local rebind of `^:dynamic` vars, see 7.6 |
@@ -698,12 +744,17 @@ symbol-resolution path as everything else.
 | `+` `-` `*` `/` | arithmetic; `/` on two integers produces a ratio (auto-demoted to an integer when exact); all four are ratio- and decimal-aware, see the note below |
 | `quot` `rem` | `(quot n d)` `(rem n d)` -- integer-only, wrap Erlang's `div`/`rem` directly (already exactly Clojure's own `quot`/`rem` semantics: truncate toward zero, remainder's sign matches the dividend's); `mod` (`core.logos`) builds floored modulo on top of `rem` |
 | `=` `<` `>` `<=` `>=` | comparison, chained (`(< 1 2 3)` checks both steps); ratio-/decimal-aware, see the note below |
+| `compare` | `(compare a b)` -- Clojure's general-purpose ordering, returning a negative/zero/positive integer; unlike `<`/`<=`/..., handles any comparable pairing (numbers, strings, chars, keywords/symbols by `{ns name}`, vectors/lists elementwise), not just numbers -- backs `sort`/`sort-by` (`logos.seq`) and `sorted-map`/`sorted-set`'s default ordering |
 | `first` `rest` `cons` | list primitives; `first`/`rest` of `nil` are `nil`/`()` |
 | `list` `vector` `to-list` | construction/conversion |
 | `apply` | `(apply f a b ... coll)` -- calls `f` with `a`/`b`/... then every element of `coll` (list/vector/set/map/`nil`) as trailing positional arguments; dispatches to the same `Logos.Eval.apply_fn/3` every other call path already uses, so no interpreter changes were needed for it |
 | `str` | `(str & vs)` -- stringifies every argument and concatenates; `nil` stringifies to `""` and a string passes through bare (unlike `Logos.Printer.print/1`, which would re-quote it -- `print/1` answers "what reads back to this value," `str` answers "what should a human see"), everything else reuses `print/1` |
+| `pr-str` | `(pr-str & vs)` -- like `str`, but every argument (strings included) goes through `Logos.Printer.print/1` unchanged: `(pr-str "hi")` => `"\"hi\""`, the round-trippable form, not `str`'s human-readable one. Multiple arguments join with a single space |
+| `read-string` | `(read-string s)` -- parses `s` as Logos source text and returns the FIRST form as plain, unevaluated data (`Logos.Reader.read/2`, reachable from Logos code now); malformed `s` raises a catchable `:read-error` |
 | `concat` `list->vector` `list->map` `list->set` | flattening/conversion, mainly for syntax-quote's own desugared output |
-| `get` `assoc` `dissoc` | `logos.map` primitives; `assoc`/`dissoc` are variadic (`(assoc m k v k2 v2 ...)`, `(dissoc m k1 k2 ...)`); `nil` treated as `{}` |
+| `get` `assoc` `dissoc` | `logos.map` primitives; `assoc`/`dissoc` are variadic (`(assoc m k v k2 v2 ...)`, `(dissoc m k1 k2 ...)`); `nil` treated as `{}`; also work on a `%Logos.SortedMap{}` (7.8) and a live transient (7.9, `get` only). `get`/`assoc` also work on a vector (index, bounds-checked -- `assoc` allows an existing index or exactly one past the end, matching `conj`; anything further raises rather than leaving a gap), and `get` also works on a set/sorted-set (real Clojure's own membership-as-lookup: the element itself if present, `default`/`nil` otherwise) |
+| `sorted-map` `sorted-map-by` `sorted-set` `sorted-set-by` `sorted-set-put` `sorted-set-remove` | see [7.8](#78-sorted-collections) |
+| `transient` `conj!` `assoc!` `dissoc!` `disj!` `pop!` `persistent!` | see [7.9](#79-transients) |
 | `throw` | see [section 4](#4-throw-catch-finally) |
 | `intern-var!` `in-ns` `require` `use` `import` | namespace/Var machinery |
 | `register-data-reader!` | `(register-data-reader! tag dotted-name)` -- registers a `#tag value` reader, resolved through the same allowlist `import` uses; see 1.2 |
@@ -715,6 +766,10 @@ symbol-resolution path as everything else.
 | `meta` | `(meta sym)` -- a symbol *value*'s own `^meta`/`with-meta`-attached metadata (`{}` by default), or `nil` for anything that isn't a symbol; `with-meta`'s read-side counterpart. Not a resolved Var's stored metadata (`:doc`/`:private`/`:macro`, read back by `var-doc`/`macro?`) -- a different, unrelated piece of state |
 | `gensym` | `(gensym)` / `(gensym "prefix")` |
 | `keyword` | `(keyword "a")` / `(keyword "ns" "x")` / `(keyword 'a)` / `(keyword 'ns/x)` -- builds a keyword from a string or a symbol's own name/ns; what `core.logos`'s destructuring helpers (7.4) use to turn a `{:keys [a]}` pattern's binding name into the keyword `:a` to `get` it by |
+| `symbol` | `(symbol "a")` / `(symbol "ns" "x")` -- `keyword`'s counterpart, builds a fresh (unqualified or qualified) *symbol* value from a string; what `defrecord` (7.7) uses to synthesize its `->Name`/`Name?` var names from computed text |
+| `push-thread-binding!` `pop-thread-binding!` | the Elixir-side half of `binding` (7.6) -- per-BEAM-process dynamic-var override storage; not meant to be called directly, `binding` is the real interface |
+| `record` | `(record type-kw fields-map)` -- builds a `%Logos.Record{}` directly; the Elixir-side plumbing `defrecord` (7.7) needs since Logos has no generic "construct an arbitrary struct" facility |
+| `current-ns` | `(current-ns)` -- the bare current namespace name as a string; what `defrecord` (7.7) uses to fix a record type's tag to the namespace it was defined in |
 | `spawn` `spawn-link` `spawn-monitor` `link` `unlink` `monitor` `demonitor` `trap-exits!` `exit` `self` `send` `receive-match!` | concurrency, see [section 9](#9-concurrency) |
 | `pid->atom` | wraps a `%Logos.Pid{}` as a `%Logos.Atom{}` (used internally by `atom`) |
 | `normal-exit?` | `(normal-exit? reason)` -- whether a `:DOWN`/`:EXIT` message's `reason` was a clean exit; needed since `reason` is a raw Elixir term (the bare atom `:normal` on a clean exit, not something Logos source can construct or `=`-compare against directly) |
@@ -722,10 +777,12 @@ symbol-resolution path as everything else.
 | `ns-list` `ns-vars` | introspection, `logos.repl` support |
 
 General type predicates (`nil?`, `list?`, `vector?`, `map?`, `set?`,
-`number?`, `decimal?`) live in `core.logos` as pure Logos, each a thin
-`(= (type-of x) :tag)` wrapper over the one `type-of` primitive above --
-see [section 7](#7-the-stdlib-layer)'s stdlib table, not this primitives
-one.
+`number?`, `decimal?`, `sorted?`, `transient?`) live in `core.logos` as
+pure Logos, each a thin `(= (type-of x) :tag)` wrapper over the one
+`type-of` primitive above -- `map?`/`set?` each check *two* tags
+(`:map`/`:sorted-map`, `:set`/`:sorted-set`), so a sorted collection is
+still a `map?`/`set?`, matching real Clojure -- see
+[section 7](#7-the-stdlib-layer)'s stdlib table, not this primitives one.
 
 **Note on arithmetic, ratios, and decimals:** `/` produces/reduces a
 ratio when given two plain integers (`(/ 1 3)` => `1/3`); `+`/`-`/`*`/`/`
@@ -751,7 +808,11 @@ by cross-multiplying numerators/denominators for ratios
 
 **Note on maps:** `get`/`assoc`/`dissoc` and Clojure-style
 `(:key map)`/`(:key map default)` keyword-as-function lookup (dispatching
-to `get`) all work, scoped to maps and `nil` -- not sets.
+to `get`) all work, scoped to maps and `nil`. A `%Logos.SortedMap{}` (7.8)
+counts as a map here too. `get`/keyword-as-function also work on a
+set/sorted-set, matching real Clojure's own membership-as-lookup there;
+`get`/`assoc` (but not keyword-as-function, since indices aren't
+keywords) also work on a vector, by index.
 
 ### 7.2 `logos.test` -- unit testing
 
@@ -788,13 +849,14 @@ own `:refer` spec syntax.
 | `run-tests` | fn | `(run-tests)` | runs every registered test, returns `{:total n :passed n :failed (list of (name reason) pairs)}` |
 
 Each test runs in its own `spawn-monitor`ed process -- real process
-isolation, not a simulated `try`/`catch` sandbox. This matters because
-Logos's `try`/`catch` only ever catches an explicit `(throw ...)` (see
-[section 4](#4-throw-catch-finally)) -- an ordinary evaluation error
-(an unbound symbol, a wrong arity, ...) is *not* a `throw` and can't be
-caught from Logos code at all; without process isolation, one genuinely
-broken test would abort the entire `run-tests` call instead of being
-reported as one failure among many.
+isolation, not a simulated `try`/`catch` sandbox. This matters because a
+`deftest` body has no implicit `try`/`catch` wrapped around it: an
+uncaught failure -- an explicit `(throw ...)`, or a primitive-level one
+like an unbound symbol or a wrong arity (see
+[section 4](#4-throw-catch-finally), which *is* now catchable by an
+actual `try`/`catch` that's actually present) -- crashes the process it
+runs in; without process isolation, that would abort the entire
+`run-tests` call instead of being reported as one failure among many.
 
 ### 7.3 Threading macros
 
@@ -874,8 +936,8 @@ whole original value, nestable:
 **Map patterns** -- `:keys [a b]` (binds `a`/`b` from `:a`/`:b`),
 explicit `name :key` pairs, `:as` for the whole original map, nestable.
 Does **not** support `:strs`/`:syms` (string-/symbol-keyed lookup) or
-`:or` (default values) -- see `ROADMAP.md` if either turns out to
-matter in practice.
+`:or` (default values) -- a real, deliberate scope trim, not an
+oversight; revisit if either turns out to matter in practice.
 
 ```clojure
 (let [{:keys [name greeting]} {:name "Jan" :greeting "Hi"}]
@@ -906,10 +968,11 @@ else a Logos map/vector/set literal shows up mid-expression.
 of calling an arbitrary "dispatch function" with a multimethod's own
 arguments, not (like a protocol) on the fixed type of its first
 argument. Strictly more general -- the dispatch function can look at
-any argument, several of them together, or none of them at all. Logos
-has no protocols/records yet (see `ROADMAP.md`); `defmulti`/`defmethod`
-are pure `priv/stdlib/multimethod.logos`, referred into `logos.core`
-like `logos.seq`/`logos.map`/`logos.concurrency`.
+any argument, several of them together, or none of them at all.
+`defprotocol`/`extend-type` (7.7) are themselves pure sugar over this
+same machinery. `defmulti`/`defmethod` are pure
+`priv/stdlib/multimethod.logos`, referred into `logos.core` like
+`logos.seq`/`logos.map`/`logos.concurrency`.
 
 ```clojure
 (defmulti area :type)
@@ -1032,6 +1095,180 @@ multimethods' own missing hierarchy support already established.
 Calling a protocol method on a type nobody `extend-type`'d throws
 `:no-method-for-dispatch-value`, inherited for free from the underlying
 multimethod.
+
+### 7.8 Sorted collections
+
+`sorted-map`/`sorted-set` behave exactly like `{...}`/`#{...}`, except
+`seq`/`to-list`/`keys`-style iteration (and printing) walks entries in
+ascending order instead of an unspecified one:
+
+```clojure
+(def m (sorted-map :c 3 :a 1 :b 2))
+(to-list m)   ;=> ((:a 1) (:b 2) (:c 3))
+(:a m)        ;=> 1
+(assoc m :aa 99)  ;=> a new sorted-map, :aa correctly ordered between :a and :b
+
+(def s (sorted-set 3 1 2))
+(to-list s)     ;=> (1 2 3)
+(conj s 0)      ;=> a new sorted-set, still ordered: #{0 1 2 3}
+```
+
+Ordering is via `compare` (7.1) by default; `sorted-map-by`/
+`sorted-set-by` take an explicit comparator instead -- an ordinary Logos
+function of two arguments, returning a negative/zero/positive integer
+(the same convention `compare` itself returns), not a boolean:
+
+```clojure
+(to-list (sorted-set-by (fn [a b] (compare b a)) 1 2 3))
+;;=> (3 2 1)     -- descending
+```
+
+`map?`/`set?` (7.1) both recognize the sorted variant too, and a sorted
+collection is `=` to a plain one with the same entries -- map/set
+equality is by content, never by concrete representation, matching real
+Clojure exactly (`(= (sorted-map :a 1) {:a 1})` => `true`). There is no
+dedicated reader syntax and no round-trip: printing a sorted collection
+produces ordinary `{...}`/`#{...}` text, which reads back as an ordinary
+(unsorted) map/set -- matching real Clojure, where `(pr-str (sorted-map
+:a 1))` reads back as a plain hash-map too.
+
+### 7.9 Transients
+
+`transient` returns a mutable, single-use handle onto a vector, map, or
+set (not a list, and not a sorted collection -- neither is an "editable
+collection" in real Clojure either); `conj!`/`assoc!`/`dissoc!`/`disj!`/
+`pop!` mutate it in place and return the *same* transient (always use
+the returned value, exactly like real Clojure); `persistent!` extracts
+the final, ordinary persistent value and permanently invalidates the
+transient -- any further op against it (from any process, not just a
+different one) throws `:transient-used-after-persistent`:
+
+```clojure
+(defn build-a-big-vector [n]
+  (persistent!
+    (reduce (fn [t x] (conj! t x)) (transient []) (range n))))
+```
+
+`get`/`count`/`to-list` (and everything `logos.seq` builds on `to-list`,
+e.g. `nth`/`empty?`) also work directly against a *live* transient, no
+`persistent!` needed first -- matching real Clojure transients
+implementing the same read interfaces their persistent counterparts do.
+
+Unlike `atom` (9.3), a transient is not a spawned process -- it wraps a
+`:private` ETS table, genuinely only reachable from the BEAM process
+that created it (any other process gets the same
+`:transient-used-after-persistent`-shaped failure a stale handle would).
+This is a deliberate difference, not an inconsistency: an atom exists to
+be a safely *shared* mutable reference; a transient exists to be the
+opposite -- real Clojure transients are documented as single-thread-use
+only, and this representation makes that a BEAM-enforced guarantee
+rather than a documented-only discipline, while also making each
+mutation genuine O(1) in-place work (no message round-trip) -- the
+actual performance reason transients exist in the first place.
+
+### 7.10 `logos.set`
+
+Set algebra, real Clojure `clojure.set` semantics and naming. **Not**
+auto-referred into `logos.core` -- require it explicitly, same as
+`logos.test`:
+
+```clojure
+(require '[logos.set :as set])
+
+(set/union #{1 2} #{2 3})            ;=> #{1 2 3}
+(set/intersection #{1 2 3} #{2 3 4}) ;=> #{2 3}
+(set/difference #{1 2 3} #{2})       ;=> #{1 3}
+(set/subset? #{1 2} #{1 2 3})        ;=> true
+(set/superset? #{1 2 3} #{1 2})      ;=> true
+(set/select even? #{1 2 3 4})        ;=> #{2 4}    -- filter that keeps set's own shape
+(set/map-invert {:a 1 :b 2})         ;=> {1 :a 2 :b}
+(set/rename-keys {:a 1 :b 2} {:a :aa}) ;=> {:aa 1 :b 2}
+```
+
+No `project`/`rename`/`index`/`join` -- real Clojure's relational-
+algebra corner of `clojure.set`, for querying sets-of-maps like database
+rows; a real, deliberate scope trim, genuinely niche outside actual
+in-memory relational querying.
+
+### 7.11 `logos.walk`
+
+Generic recursive tree transformation, a direct port of real Clojure's
+`clojure.walk`. Also **not** auto-referred into `logos.core`:
+
+```clojure
+(require '[logos.walk :as walk])
+
+(walk/postwalk (fn [x] (if (number? x) (inc x) x)) (list 1 (list 2 3)))
+;;=> (2 (3 4))    -- bottom-up: children transformed before their parent
+
+(walk/prewalk (fn [x] (if (number? x) (inc x) x)) (list 1 (list 2 3)))
+;;=> (2 (3 4))    -- top-down here too, since `inc` doesn't care about order
+```
+
+`walk` itself is the one base combinator both build on: `(walk inner
+outer form)` maps `inner` over `form`'s own elements (list/vector/map/
+set/sorted-map/sorted-set -- a map's entries walked as 2-element LISTS
+`(k v)`, matching how `to-list` already represents them everywhere else
+in Logos, not real Clojure's vector-shaped `MapEntry`) before applying
+`outer` to the rebuilt result; a non-collection `form` (`nil` included --
+`(coll? nil)` is `false` in real Clojure too) goes straight to `outer`
+unchanged. Rebuilding a map or a sorted collection always produces a
+plain map/set -- a real, deliberate scope trim (Logos has no generic
+`empty` constructor to preserve an arbitrary collection's own shape
+with, the same reason `select-keys` (7's stdlib table) already accepts
+this).
+
+**Remember Logos's own collection-literal evaluation rule when building
+test data for `walk`** (2, Data model): `[1 (list 2 3)]` does *not*
+evaluate the nested `(list 2 3)` the way real Clojure would -- Logos
+vector/map/set literals never evaluate their own elements, so that
+form embeds the literal, unevaluated call form `(list 2 3)` rather than
+the value `(2 3)`. Build genuinely nested test values via `list`/
+`vector`/`list->map` calls instead when writing your own.
+
+### 7.12 `logos.string`
+
+Clojure-idiomatic string manipulation. Every function is a thin Logos
+wrapper over an `import`ed, allowlisted Elixir `String.*` function
+(`Logos.Interop.Allowlist`) -- going through the same sandboxing
+chokepoint `import` itself uses. Also **not** auto-referred into
+`logos.core`:
+
+```clojure
+(require '[logos.string :as str])
+
+(str/upper-case "hi")            ;=> "HI"
+(str/lower-case "HI")            ;=> "hi"
+(str/capitalize "hello world")   ;=> "Hello world"
+(str/triml "  hi  ")             ;=> "hi  "
+(str/trimr "  hi  ")             ;=> "  hi"
+(str/includes? "hello" "ell")    ;=> true
+(str/starts-with? "hello" "he")  ;=> true
+(str/ends-with? "hello" "lo")    ;=> true
+(str/blank? "   ")               ;=> true
+(str/join "," (list 1 2 3))      ;=> "1,2,3"
+(str/split-lines "a\nb\nc")      ;=> ("a" "b" "c")
+(str/replace "hello" "l" "L")    ;=> "heLLo"
+(str/reverse "hello")            ;=> "olleh"
+```
+
+**Use `:as str`, not `:refer [:all]`, for this one namespace
+specifically.** `logos.string`'s own `reverse` (string reversal)
+collides by name with `logos.seq`'s `reverse` (list reversal, already
+in scope everywhere by default) -- `:refer [:all]`-ing `logos.string`
+silently shadows it for that namespace, breaking anything that calls
+list-`reverse` internally (`interpose`, `sort`, `distinct`, ...). This
+is not a Logos-specific bug: real `(require '[clojure.string :refer
+:all])` has the identical `reverse` collision in real Clojure too,
+which is exactly why real Clojure code overwhelmingly prefers `(require
+'[clojure.string :as str])` for this one namespace. Do the same here.
+
+`split` only ever takes a literal string pattern, never a regex --
+Logos has no regex literal syntax to construct one from, unlike real
+Clojure's own regex-first `split`/`replace`. `replace-first`,
+`index-of`/`last-index-of`, `trim-newline`, `escape` -- real Clojure
+`clojure.string` functions, all skipped as genuinely niche outside what
+`logos.string` already covers.
 
 ## 8. Interop (`import`)
 

@@ -146,7 +146,6 @@ defmodule Logos.MixProject do
       "guides/language/LOGOS_CHEATSHEET.md",
       "CHANGELOG.md",
       "CONTRIBUTING.md",
-      "ROADMAP.md",
       {"LICENSE", [title: "License"]}
     ]
   end

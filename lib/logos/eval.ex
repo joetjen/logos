@@ -485,15 +485,22 @@ defmodule Logos.Eval do
 
   # Keyword-as-function (`(:key m)` / `(:key m default)`), matching real
   # Clojure keyword `IFn` behavior -- delegates to the `get` primitive
-  # (`logos.map`). Deliberately scoped to a map, a `%Logos.Record{}`, or
-  # `nil` (not sets -- unlike Clojure, which also supports `(:x #{...})`
-  # membership-as-lookup -- not part of the documented gap this closes).
+  # (`logos.map`). Scoped to every shape `get` itself now understands
+  # (map, `%Logos.Record{}`, `%Logos.SortedMap{}`, a set/sorted-set --
+  # real Clojure supports `(:x #{...})` membership-as-lookup too -- or
+  # `nil`) except a vector: `(:x [1 2 3])` isn't a meaningful lookup
+  # (indices are integers, not keywords) and returns `nil` rather than
+  # erroring in real Clojure too, not part of what this scopes in.
   def apply_fn(%Keyword{} = kw, [coll], runtime)
-      when is_nil(coll) or (is_map(coll) and not is_struct(coll)) or is_struct(coll, Logos.Record),
+      when is_nil(coll) or (is_map(coll) and not is_struct(coll)) or
+             is_struct(coll, Logos.Record) or is_struct(coll, Logos.SortedMap) or
+             is_struct(coll, MapSet) or is_struct(coll, Logos.SortedSet),
       do: Logos.Primitives.apply("get", [coll, kw], runtime)
 
   def apply_fn(%Keyword{} = kw, [coll, default], runtime)
-      when is_nil(coll) or (is_map(coll) and not is_struct(coll)) or is_struct(coll, Logos.Record),
+      when is_nil(coll) or (is_map(coll) and not is_struct(coll)) or
+             is_struct(coll, Logos.Record) or is_struct(coll, Logos.SortedMap) or
+             is_struct(coll, MapSet) or is_struct(coll, Logos.SortedSet),
       do: Logos.Primitives.apply("get", [coll, kw, default], runtime)
 
   def apply_fn({:host_fn, mod, fun}, arg_values, _runtime) do

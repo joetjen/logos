@@ -9,6 +9,273 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three new stdlib namespaces** (`logos.set`, `logos.walk`,
+  `logos.string`) plus `read-string`/`pr-str` in `logos.core` -- closing
+  out the "are there more stdlib modules worth adding" follow-up to the
+  missing-functionality audit below. All three new namespaces are
+  loaded into every `Runtime` but deliberately **not** auto-referred
+  into `logos.core` (`require` them explicitly), matching real Clojure
+  exactly: `clojure.set`/`clojure.walk`/`clojure.string` are all
+  separate, explicitly-required namespaces there too, unlike
+  `clojure.core`'s own multimethod/protocol machinery (why
+  `logos.multimethod` *is* auto-referred).
+  - **`logos.set`** -- `union`/`intersection`/`difference`/`subset?`/
+    `superset?`/`select`/`map-invert`/`rename-keys`, pure Logos over
+    existing primitives, no interpreter changes. No `project`/`rename`/
+    `index`/`join` (real Clojure's relational-algebra corner of
+    `clojure.set`) -- a real, deliberate scope trim, genuinely niche
+    outside actual in-memory relational querying.
+  - **`logos.walk`** -- `walk`/`postwalk`/`prewalk`, a direct port of
+    `clojure.walk`. Rebuilding a map or sorted collection always
+    produces a plain map/set -- a real, deliberate scope trim (Logos has
+    no generic `empty` constructor to preserve an arbitrary collection's
+    own shape with, same reason `select-keys` already accepts this).
+  - **`logos.string`** -- Clojure-idiomatic string manipulation
+    (`upper-case`/`lower-case`/`capitalize`/`triml`/`trimr`/`includes?`/
+    `starts-with?`/`ends-with?`/`blank?`/`join`/`split-lines`/`replace`/
+    `reverse`), every function a thin wrapper over an `import`ed,
+    allowlisted Elixir `String.*` function -- going through the *same*
+    sandboxing chokepoint `import` itself uses, never a direct,
+    allowlist-bypassing primitive. A deliberate, explicit decision (Jan
+    chose this over leaving string manipulation as purely the host
+    embedding app's job, the alternative presented): `Logos.Interop.Allowlist`
+    grew seven new `String.*` entries specifically to support it, and
+    its own moduledoc was updated to say so -- it no longer frames itself
+    as just a minimal test-fixture seed list. **`join`/`split-lines`/
+    `blank?` need no interop at all**, pure Logos over what's already
+    available. `split`/`replace` only ever take a literal string
+    pattern, never a regex (Logos has no regex literal syntax to
+    construct one from); `replace-first`/`index-of`/`last-index-of`/
+    `trim-newline`/`escape` skipped as genuinely niche. **This
+    namespace's own `reverse` (string reversal) collides by name with
+    `logos.seq`'s `reverse` (list reversal) if `:refer [:all]`'d** --
+    documented prominently (this file's own header comment, `LOGOS.md`
+    7.12, a dedicated test) as the exact same footgun real `(require
+    '[clojure.string :refer :all])` has in real Clojure too, which is
+    why `(require '[logos.string :as str])` is the documented,
+    recommended form.
+  - **`read-string`/`pr-str`** (`logos.core` primitives) -- `read-string`
+    parses a string as Logos source and returns the first form as plain,
+    unevaluated data (`Logos.Reader.read/2`, reachable from Logos code
+    now); malformed input raises a catchable `:read-error`. `pr-str` is
+    `str`'s round-trippable sibling -- every argument (strings included)
+    goes through `Logos.Printer.print/1` unchanged, unlike `str`, which
+    special-cases strings to pass through bare.
+
+  Found and fixed two real bugs while building this, both sharper
+  versions of the `^:private`-cross-namespace hazard `not-found-sentinel`
+  already surfaced during the missing-functionality work below --
+  **being public isn't sufficient for a namespace that isn't
+  auto-referred into `logos.core`**: `logos.set`'s `superset?` called
+  `subset?` via a bare reference, and `logos.walk`'s `postwalk`/
+  `prewalk` called `walk` (and themselves, recursively) the same way;
+  most of `logos.string`'s own wrappers had the identical shape (calling
+  their own raw imported name). Each broke with `{:unbound_symbol, ...}`
+  the moment a caller used `(require '[logos.set :as set])` (no
+  `:refer`) instead of `:refer [:all]` -- exactly the *recommended* form
+  for `logos.string`, specifically to dodge the `reverse` collision
+  above, which would otherwise have made the two pieces of guidance
+  directly contradict each other. Caught by actual `mix run` smoke
+  tests (not just the example-based test suite) before any of it reached
+  a committed test file; fixed by qualifying every same-namespace
+  internal cross-call with its full `logos.set/...`/`logos.walk/...`/
+  `logos.string/...` prefix, which -- unlike a bare reference -- always
+  resolves against the literal target namespace regardless of caller
+  context (the same mechanism `logos.core/build-let` already relies on
+  to stay reachable despite being `^:private`). Each of the three new
+  files' own header comments now document this explicitly, and
+  `CONTRIBUTING.md`'s existing `^:private` guidance grew a matching
+  section for it.
+
+  Also found and fixed a real, previously under-documented gap while
+  writing `logos.walk`'s own tests: **a Logos vector/map/set literal
+  never evaluates its own elements**, a genuine, deliberate divergence
+  from Clojure (`[1 (+ 1 1)]` evaluates to itself verbatim in Logos, a
+  two-element vector whose second element is the literal, unevaluated
+  list `(+ 1 1)` -- not `[1 2]`), already correctly implemented and
+  commented in `Logos.Eval.eval/3` but never stated anywhere in
+  `guides/language/LOGOS.md` at the level such an easy-to-miss semantic
+  deserves (only a narrower, destructuring-scoped mention existed).
+  Added a dedicated, prominent note in `LOGOS.md` section 2 and the
+  cheatsheet's reader-syntax table -- caught only because an actual
+  `mix run` smoke test of a naively-written `postwalk` test hit it
+  directly.
+
+- **A batch of missing map/seq functionality**, found by a full audit of
+  the stdlib layer for missing functionality, optimization
+  opportunities, and Elixir code that could move to Logos (see this
+  file's own "Changed" entries below for the other two). Two genuine
+  primitive extensions, the rest pure Logos over them:
+  - `get`/`assoc` now support **vectors** (index-based, like real
+    Clojure) -- previously unsupported entirely. `assoc` allows an
+    existing index or exactly one past the end (append, matching `conj`
+    and real Clojure); anything further raises `:index_out_of_bounds`
+    rather than silently leaving a gap (the underlying `:array.set/3`
+    auto-extends past its bound, which `Logos.Vector` deliberately
+    guards against).
+  - `get` (and keyword-as-function, `(:k coll)`) now support **sets**
+    (real Clojure's own membership-as-lookup: the element itself if
+    present, `default`/`nil` otherwise).
+  - `contains?`, `keys`, `vals` -- the item `ROADMAP.md` flagged but
+    deliberately left untracked while closing out transients/sorted
+    collections. `contains?` is a pure Logos sentinel-default wrapper
+    over `get` (no primitive of its own needed, now that `get` dispatches
+    correctly across every shape); `keys`/`vals` are thin `to-list`
+    wrappers, map/sorted-map-only (throws on anything else, matching
+    real Clojure).
+  - `merge`/`merge-with` -- seeded from the first non-`nil` map itself
+    (not always a fresh `{}`), then `into`s the rest, so merging into a
+    sorted-map keeps it sorted (matching real Clojure's own `conj`-based
+    `merge`).
+  - `get-in`/`assoc-in`/`update`/`update-in` -- nested map ergonomics.
+    `get-in` uses its own internal-only sentinel (`get-in-miss`,
+    distinct from `contains?`'s `not-found-sentinel`) to detect a
+    missing intermediate step without confusing it with a caller-
+    supplied `not-found` value that might otherwise collide with a real
+    stored one.
+  - `select-keys` -- always returns a plain map even from a sorted
+    source, a real, minor, deliberate divergence from Clojure (not worth
+    a dedicated sorted-preserving path for this one function).
+  - `take-while`/`drop-while`, `partition`/`partition-all`/
+    `partition-by`, `flatten`, `zipmap`/`mapcat`/`interpose`/
+    `interleave`, `juxt`/`every-pred`/`some-fn`. `partition`/
+    `partition-all` reject a non-positive `n`/`step` (throws
+    `:invalid-partition-size`) rather than looping forever -- this layer
+    is eager, not Clojure's lazy version, so it can't just never fully
+    realize an infinite result the way Clojure's own `(partition 0
+    coll)` effectively doesn't. No 4-arity padding form
+    (`partition`/`n`/`step`/`pad`) and no multi-collection `map`/
+    `mapcat` (Clojure's own are variadic) -- deliberate scope trims,
+    same spirit as this codebase's other trimmed edge variants;
+    `interleave` is the one multi-collection exception, since a
+    single-collection `interleave` is degenerate and its own
+    implementation doesn't actually need a variadic `map` (it maps
+    `first`/`rest` over the *outer* list of collections, itself always
+    one collection).
+
+  Found and fixed one real bug while building this: `not-found-sentinel`/
+  `get-in-miss` (`priv/stdlib/seq.logos`) were first written `^:private`
+  -- the exact hazard this file's own header comment already documents
+  (a private helper is only reachable via the "direct var in the current
+  namespace" check, never through `logos.core`'s refer of `logos.seq`,
+  which DOES filter by `public?`) -- breaking `contains?`/`merge-with`/
+  `select-keys`/`get-in` for every caller outside `logos.seq` itself,
+  i.e. always in practice. Caught by an actual `mix run` smoke test
+  before it reached a committed test file; fixed by making both public,
+  matching `test-registry`/`multimethod-registry`'s own precedent for
+  this exact situation.
+
+### Changed
+
+- **`logos.seq`'s `map`/`filter`/`take`/`count`/`range`/`repeat` are now
+  genuinely tail-recursive.** Found during a full audit of the stdlib
+  layer (missing functionality / optimization opportunities / Elixir
+  code that could move to Logos): each of these six built its result by
+  wrapping its own recursive call in `cons`/`+` (e.g. `(cons (f (first
+  items)) (map f (rest items)))`), which is *not* tail position -- unlike
+  `reverse-onto`/`distinct-onto`/`reduce`/`drop` (already correct,
+  accumulate-then-`reverse`, elsewhere in the same file), so none of
+  these six ever actually benefited from this project's own headline TCO
+  feature; recursion depth scaled with input size. Rewritten to the same
+  accumulate-then-`reverse` pattern as their already-correct neighbors
+  (`count-onto`/`take-onto`/`map-onto`/`filter-onto`/`range-onto`/
+  `repeat-onto`, public per this file's own established `^:private`-is-
+  unsafe-for-a-cross-namespace-callee rule). Purely internal -- identical
+  observable output confirmed by the existing test suite (`stdlib_test.exs`,
+  `seq_property_test.exs`'s property coverage, `logos_scripts_test.exs`)
+  with zero changes needed to any of it.
+- `test.logos`'s own header comment had the same stale "`try`/`catch`
+  only ever catches an explicit `(throw ...)`" claim already found and
+  fixed in `guides/language/LOGOS.md` while building the item below --
+  missed there the first time; fixed the same way.
+
+### Added
+
+- **Transients** and **persistent sorted collections**
+  (`sorted-map`/`sorted-set`), `ROADMAP.md`'s last open Tier 3 item --
+  closing out the roadmap's own tracked gap list entirely (only a
+  pre-existing, never-tracked gap, `keys`/`vals`/`contains?`, noticed
+  while building this but out of scope for it, remains).
+
+  **Sorted collections**: genuine new `Logos.SortedMap`/`Logos.SortedSet`
+  runtime value types (mirroring `Logos.Vector`'s own precedent), backed
+  by a sorted association list -- the same "boring, obviously correct,
+  O(n) per op" tradeoff `sort`/`distinct` already made, not a balanced
+  tree, since script-sized collections need correctness far more than
+  asymptotics. `sorted-map`/`sorted-set` order by a new `compare`
+  primitive (Clojure's own general 3-way ordering -- numbers across the
+  full tower, strings, chars, keywords/symbols by `{ns name}`,
+  vectors/lists elementwise -- returning -1/0/1, distinct from `<`/`<=`/
+  ..., which stay strictly numeric, matching real Clojure exactly);
+  `sorted-map-by`/`sorted-set-by` take an explicit comparator instead --
+  an ordinary Logos function called back through the existing
+  `Logos.Eval.apply_fn/3` (the same mechanism `apply` itself already
+  uses), no new evaluator machinery. `type-of` returns `:sorted-map`/
+  `:sorted-set`; `map?`/`set?` (`core.logos`) were widened to recognize
+  both their plain and sorted variant, so a sorted collection is a
+  `map?`/`set?` like real Clojure's is; a new `sorted?` predicate checks
+  specifically. `get`/`assoc`/`dissoc`/keyword-as-function all work on a
+  sorted-map; `conj`/`disj`/`into` (`logos.seq`) all keep a sorted-set
+  sorted rather than silently demoting it to a plain set on the first
+  mutation -- the bug this would otherwise have been is why `into`'s set
+  branch now reuses `conj` instead of its own separate `list->set`
+  rebuild. `=` treats a sorted collection as content-equal to a plain one
+  with the same entries (map/set equality is by content, never by
+  concrete representation, matching real Clojure: `(= (sorted-map :a 1)
+  {:a 1})` is `true` there too). No dedicated reader syntax and no
+  round-trip -- printing produces ordinary `{...}`/`#{...}` text (in
+  sorted order), which reads back as an ordinary map/set, matching real
+  Clojure there as well (`(pr-str (sorted-map :a 1))` reads back as a
+  plain hash-map too). Added a real new `disj` (`logos.seq`) alongside
+  this -- it didn't exist at all before, and both `sorted-set` and
+  transient sets need a removal counterpart to `conj`.
+
+  Also used `compare` to fix a real, previously-undocumented gap: `sort`/
+  `sort-by` (`logos.seq`) used to compare via `<=`, which is strictly
+  numeric (matching real Clojure's own `<=`, which also throws on two
+  strings) -- so `(sort ["b" "a"])` used to error. Both now sort via
+  `compare` instead, closing that gap for free.
+
+  **Transients**: `transient`/`conj!`/`assoc!`/`dissoc!`/`disj!`/`pop!`/
+  `persistent!`, scoped to vectors/maps/sets only (not lists, not sorted
+  collections -- neither is an "editable collection" in real Clojure
+  either, so `(transient (sorted-map))`/`(transient '(1 2))` throw here
+  too). Planned explicitly first (the two representations on the table --
+  a process+message design mirroring `atom`, vs. a `:private`-ETS-backed
+  value type -- were presented with a concrete recommendation before any
+  code); chose the latter (`Logos.Transient`, a new value module) on
+  explicit request. Deliberately *not* built the way `atom` is: an atom
+  exists to be a safely *shared* mutable reference (hence process +
+  message-passing, atomicity free from BEAM's one-message-at-a-time
+  guarantee), but a transient exists to be the opposite -- real Clojure
+  transients are documented single-thread-use only, and a `:private` ETS
+  table makes that a genuine BEAM-enforced guarantee (any process but the
+  creator gets `ArgumentError` touching it) rather than a documented-only
+  discipline, while also making every mutation real O(1) in-place work
+  (no message round-trip) -- actually delivering the performance
+  transients exist for, which the process-based alternative would not
+  have. `persistent!` deletes the backing table after extracting the
+  final value, so a transient used afterward (`persistent!` a second
+  time, or any mutator) raises the same `ArgumentError` under the hood,
+  surfaced as a single, uniform, catchable
+  `:transient-used-after-persistent` failure -- one mechanism naturally
+  covering both of Clojure's transient safety rules, not two separate
+  checks. `conj!`/`assoc!`/... always return the transient itself (not
+  the new value), matching Clojure's own "always use the returned value"
+  contract. `get`/`count`/`to-list` (and everything `logos.seq` builds on
+  `to-list`, e.g. `nth`/`empty?`) work directly against a *live*
+  transient with no `persistent!` needed first, for free, since
+  `to_list_value/1`'s own dispatch (`Logos.Primitives`) just peeks the
+  transient's current value -- matching real Clojure transients
+  implementing the same read interfaces their persistent counterparts do.
+
+  Found and fixed one real, adjacent doc bug while writing this:
+  `guides/language/LOGOS.md`'s `logos.test` section still claimed
+  `try`/`catch` "only ever catches an explicit `(throw ...)`" -- stale
+  since the broader `try`/`catch` work earlier in this file; fixed to
+  explain the real, current reason `deftest` still needs process
+  isolation (no implicit `try`/`catch` wraps a test body at all, not
+  "primitive failures aren't catchable").
 - **Reader tagged literals** (`#tag value`), `ROADMAP.md`'s second Tier
   3 item. Jan chose the full, genuinely extensible route (a per-
   `Runtime` registry, `#inst`/`#uuid` as two pre-installed entries in

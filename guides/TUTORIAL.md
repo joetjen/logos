@@ -34,9 +34,14 @@ runtime = Logos.new_runtime()
 
 `Logos.new_runtime/1` is a convenience: it builds a bare `Logos.Runtime`
 and loads the stdlib (`priv/stdlib/*.logos` -- `logos.core`, `logos.seq`,
-`logos.concurrency`, plus the primitives-only `logos.map`, all referred
-into `logos.core`) into it (so `if`/`let`/`when`/`defn`/`map`/`filter`/
-`get`/`receive`/etc. are ready to use, unqualified, from anywhere). If you
+`logos.concurrency`, `logos.multimethod`, plus the primitives-only
+`logos.map`, all referred into `logos.core`) into it (so `if`/`let`/
+`when`/`defn`/`map`/`filter`/`get`/`receive`/`defmulti`/etc. are ready to
+use, unqualified, from anywhere). `logos.test` (`deftest`/`assert`/
+`run-tests`) also loads, but deliberately *isn't* referred into
+`logos.core` -- testing macros have no business being unqualified in
+every embedding's production namespaces, so it's only reachable once a
+script explicitly `(require '[logos.test :refer [:all]])`s it. If you
 ever need the primitives *without* the stdlib layer (rare -- mostly useful
 for isolating a stdlib bug), you can call `Logos.Runtime.new/1` directly
 and skip `Logos.Stdlib.load!/1`.

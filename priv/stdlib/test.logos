@@ -27,11 +27,12 @@
 ;;
 ;; Each test runs in its own `spawn-monitor`ed BEAM process -- real
 ;; process isolation, not a simulated `try`/`catch` sandbox. This matters
-;; because Logos's `try`/`catch` only ever catches an explicit
-;; `(throw ...)` (see `Logos.Eval`'s moduledoc) -- an ordinary evaluation
-;; error (an unbound symbol, a wrong arity, ...) is NOT a `throw` and
-;; cannot be `catch`-ed from Logos code at all; it just propagates as an
-;; `{:error, _}` up through the whole calling chain. Without process
+;; because a `deftest` body has no implicit `try`/`catch` wrapped around
+;; it: an uncaught failure -- an explicit `(throw ...)`, or a primitive-
+;; level one like an unbound symbol or a wrong arity (see `Logos.Eval`'s
+;; moduledoc -- that class of failure *is* now catchable by an actual
+;; `try`/`catch` that's actually present, unlike when this comment was
+;; first written) -- crashes the process it runs in. Without process
 ;; isolation, one genuinely broken test (as opposed to a *failed*
 ;; assertion) would abort the entire `run-tests` call rather than being
 ;; reported as one failure among many. A test that finishes without
