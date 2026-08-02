@@ -110,7 +110,7 @@ defmodule Logos.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/oetjenj/logos"},
+      links: %{"GitHub" => "https://github.com/joetjen/logos"},
       files:
         ~w(lib priv/grammar priv/stdlib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
@@ -163,11 +163,13 @@ defmodule Logos.MixProject do
         Logos.Form,
         Logos.Env,
         Logos.Thrown,
-        Logos.MacroError
+        Logos.MacroError,
+        Logos.EvalError
       ],
       Reader: [
         Logos.Reader,
-        Logos.Reader.Actions
+        Logos.Reader.Actions,
+        Logos.DataReaders
       ],
       "Macroexpand & Eval": [
         Logos.Macroexpand,
@@ -191,10 +193,15 @@ defmodule Logos.MixProject do
         Logos.Keyword.Registry,
         Logos.Vector,
         Logos.Ratio,
+        Logos.Decimal,
         Logos.Char,
         Logos.Fn,
         Logos.Atom,
-        Logos.Pid
+        Logos.Pid,
+        Logos.Record,
+        Logos.SortedMap,
+        Logos.SortedSet,
+        Logos.Transient
       ],
       Interop: [
         Logos.Interop.Allowlist
