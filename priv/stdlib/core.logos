@@ -18,7 +18,7 @@
 ;; unqualified from anywhere, exactly like everything defined directly in
 ;; this file.
 ;;
-;; ## Metadata: `:private` and `:macro`
+;; ## Metadata: `:private`, `:macro`, and `:dynamic`
 ;;
 ;; `def`'s symbol position accepts `^`-attached metadata (reader sugar)
 ;; or a `with-meta`-returned symbol (for a name built as macro-generated
@@ -27,9 +27,11 @@
 ;; `^:private` hides a var from `require`/`use :refer` (though NOT from a
 ;; direct qualified reference, e.g. `logos.core/build-let` still resolves
 ;; even though `build-let` is private -- privacy is enforced at `refer!`
-;; time, not at qualified-lookup time), and `^:macro` is an alternative to
+;; time, not at qualified-lookup time), `^:macro` is an alternative to
 ;; a separate `(set-macro! 'name true)` call, both flagging the same
-;; `meta[:macro] == true` `Logos.Macroexpand` checks.
+;; `meta[:macro] == true` `Logos.Macroexpand` checks, and `^:dynamic`
+;; marks a var as bindable via `binding` (below) -- see that section's
+;; own comment.
 ;;
 ;; **Important, non-obvious constraint on `^:private` for a HELPER
 ;; function**: Logos has no notion of "a closure's defining namespace" --
@@ -807,3 +809,55 @@
   (let [p (gensym "pred")
       g (gensym "condp")]
     `(let [~p ~pred ~g ~expr] ~(condp-cond p g clauses))))
+;; ---- binding (dynamic vars) -----------------------------------------------------
+;; A `^:dynamic` var (e.g. `(def ^:dynamic *out* nil)`) can be
+;; thread-locally (per-BEAM-process) rebound for the extent of a
+;; `binding` body via `push-thread-binding!`/`pop-thread-binding!`
+;; (`Logos.Primitives`) -- the actual per-process override storage and
+;; the read-side hook (`Logos.Eval`'s `get_var_value_dynamic_aware/3`)
+;; are necessarily Elixir-side (BEAM process-dictionary access isn't
+;; reachable from pure Logos), but `binding` itself is an ordinary macro
+;; over the existing `try`/`finally` special form -- no new special form
+;; needed, matching how `if`/`case`/`condp` are all built directly on
+;; `cond`. `binding-pushes`/`binding-pops` walk `bindings`'s flat `[name
+;; value name value ...]` list two at a time, the same style
+;; `build-let`'s own pairs-walking uses.
+
+(def ^:private binding-pushes
+  (fn [flat]
+    (cond
+      (= flat ()) ()
+      true
+      (cons
+        (list 'push-thread-binding! (list 'quote (first flat)) (first (rest flat)))
+        (binding-pushes (rest (rest flat)))))))
+(def ^:private binding-pops
+  (fn [flat]
+    (cond
+      (= flat ()) ()
+      true
+      (cons
+        (list 'pop-thread-binding! (list 'quote (first flat)))
+        (binding-pops (rest (rest flat)))))))
+(defmacro binding
+  "`(binding [*a* 1 *b* 2] body...)` -- thread-locally (per-BEAM-process)
+  rebinds each `^:dynamic` var to its paired value for the extent of
+  `body`, restoring the previous value once `binding` returns -- even if
+  `body` throws, via `try`/`finally` under the hood. Only vars `def`'d
+  with `^:dynamic` meta may be bound this way; pushing onto an ordinary
+  var throws `:not_dynamic`. Nested `binding` forms shadow correctly
+  (innermost wins, unwinding to the next-outer value on exit) since the
+  per-var override is a stack, not a single slot. Bindings do **not**
+  propagate into a `spawn`/`spawn-link`/`spawn-monitor`ed child process
+  -- a fresh process starts with no active bindings of its own, matching
+  real Clojure (a bare new thread doesn't inherit dynamic bindings
+  either, only `bound-fn` does). Rebinding the innermost active binding
+  from within its own `binding` scope (Clojure's `set!`) is not
+  supported."
+  [bindings & body]
+  (let [flat (to-list bindings)]
+    `(do
+      ~@(binding-pushes flat)
+      (try
+        (do ~@body)
+        (finally ~@(binding-pops flat))))))

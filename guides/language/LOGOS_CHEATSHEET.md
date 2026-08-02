@@ -86,6 +86,7 @@ special.
 | `min` `max` | `(min a & more)` `(max a & more)` | variadic |
 | `comp` `partial` | `(comp f g h)` `(partial f a b)` | right-to-left composition / arg-prepending |
 | `defmulti` `defmethod` | `(defmulti name dispatch-fn)` `(defmethod name dispatch-val [p...] body)` | ad-hoc polymorphism, see LOGOS.md 7.5 |
+| `binding` | `(binding [*a* v1 *b* v2 ...] body...)` | thread-local rebind of `^:dynamic` vars, restored even on throw, see LOGOS.md 7.6 |
 | `receive` | `(receive [msg] (t h)... (after ms d)?)` | see below |
 | `atom` `deref` `swap!` `reset!` | `(atom v)` `(deref a)` `(swap! a f)` `(reset! a v)` | process-backed mutable box |
 

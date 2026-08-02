@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dynamic vars and `binding`**, `ROADMAP.md`'s third Tier 2 item.
+  Unlike every other item shipped this session, this one genuinely
+  couldn't be pure Logos over existing primitives: dynamically-scoped
+  symbol resolution has to be intercepted at the point `Logos.Eval`
+  resolves a Var's value, which is Elixir-side. A Var `def`'d with new
+  `^:dynamic` meta (`Logos.Eval`'s private `meta_from_symbol/2`,
+  alongside the existing `^:private`/`^:macro` flags) can be thread-locally (i.e.
+  per-BEAM-process) rebound for the extent of a `binding` body via two
+  new primitives, `push-thread-binding!`/`pop-thread-binding!`
+  (`Logos.Primitives`), storing each override on the calling process's
+  own **process dictionary** -- deliberately not another `{tag, pid}`
+  row in `Logos.Runtime`'s shared `:public` ETS table (the pattern
+  `current_ns` already uses): dynamic bindings need to be invisible to
+  *other* processes, the opposite of why that table is `:public`, and
+  the process dictionary comes with a real win the `current_ns` design
+  explicitly doesn't have (its own moduledoc calls out `{current_ns,
+  pid}` rows never being cleaned up on process exit as an accepted
+  tradeoff) -- a process dictionary just vanishes with its process, no
+  leak to accept. The read side is one new shared private helper in
+  `Logos.Eval`, `get_var_value_dynamic_aware/3`, called from both bare-
+  and qualified-symbol resolution in place of a direct
+  `Namespace.get_var_value/3` call: a Var that was never `binding`-bound
+  (the overwhelming majority) is completely unaffected. `binding` itself
+  is a pure `priv/stdlib/core.logos` macro over the existing `try`/
+  `finally` special form -- no new special form, matching how
+  `if`/`case`/`condp` are all built on `cond`. Nested `binding` shadows
+  correctly (each override is a stack); a spawned child process sees the
+  Var's root value, never its parent's active binding (a fresh process
+  dictionary), matching real Clojure (a bare new thread doesn't inherit
+  dynamic bindings either, only `bound-fn` does). Deliberately out of
+  scope: rebinding the innermost active binding from within its own
+  `binding` scope (Clojure's `set!`).
 - **`case`/`condp`**, `ROADMAP.md`'s second Tier 2 item -- pure macros
   over `cond`/`if`, no interpreter changes, in `priv/stdlib/core.logos`.
   `case`'s test values are literal/unevaluated (a test may also be a

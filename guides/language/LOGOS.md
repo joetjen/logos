@@ -268,6 +268,7 @@ in-memory or off disk. `import` clauses are not supported inside `ns`
 ```clojure
 (def x "the answer" 42)      ; 3-arg def form: name, doc, value
 (def ^:private secret 1)     ; ^:private reader-meta marks the Var private
+(def ^:dynamic *out* nil)    ; ^:dynamic marks the Var bindable via `binding`, see 7.6
 ```
 
 `defn`/`defmacro` accept a docstring positionally, per Clojure convention,
@@ -428,7 +429,7 @@ over each file's own source at startup.
 
 | File | Namespace | Contents |
 |---|---|---|
-| `core.logos` | `logos.core` | `defmacro` bootstrap, `let`, `if`, `when`, `unless`, `and`, `or`, `defn`, `defn-`, `doc`, `ns` |
+| `core.logos` | `logos.core` | `defmacro` bootstrap, `let`, `if`, `when`, `unless`, `and`, `or`, `defn`, `defn-`, `doc`, `ns`, `case`, `condp`, `binding` |
 | `seq.logos` | `logos.seq` | `map`, `filter`, `reduce`, `take`, `drop`, `reverse`, `count`, `empty?`, `nth`, `second`, `last`, `some`, `every?`, `distinct`, `sort`, `sort-by`, `frequencies`, `group-by`, `range`, `repeat`, `conj`, `peek`, `pop`, `into` -- every `coll` argument accepts list/vector/map/set/`nil` |
 | `concurrency.logos` | `logos.concurrency` | `receive`, `atom`, `deref`, `swap!`, `reset!` |
 | -- (primitives only, no `.logos` file) | `logos.map` | `get`, `assoc`, `dissoc` |
@@ -503,6 +504,7 @@ production namespaces, so it's only reachable once required explicitly
 | `partial` | fn | `(partial f a b)` | returns a function calling `f` with `a`/`b` prepended |
 | `defmulti` | macro | `(defmulti name dispatch-fn)` | ad-hoc polymorphism, see 7.5 |
 | `defmethod` | macro | `(defmethod name dispatch-val [params...] body...)` | see 7.5 |
+| `binding` | macro | `(binding [*a* v1 *b* v2 ...] body...)` | thread-local rebind of `^:dynamic` vars, see 7.6 |
 | `receive` | macro | `(receive [msg] (test handler)... (after ms default)?)` | see 9.2 |
 | `atom` | fn | `(atom initial)` | spawns the atom's backing loop process |
 | `deref` | fn | `(deref a)` | blocking request/reply against the atom's process |
@@ -860,6 +862,41 @@ No hierarchy support (`isa?`/`derive`/`prefer-method`) and no
 `remove-method`/`methods`/`get-method` introspection -- real Clojure
 features, out of scope for now; `:default` alone covers the
 overwhelming majority of real multimethod usage.
+
+### 7.6 Dynamic vars and `binding`
+
+A Var `def`'d with `^:dynamic` meta can be thread-locally (per-BEAM-
+process) rebound for the extent of a `binding` body, restoring the
+previous value once `binding` returns -- even if the body throws:
+
+```clojure
+(def ^:dynamic *out* :stdout)
+
+(defn current-out [] *out*)
+
+(current-out)
+;;=> :stdout
+(binding [*out* :buffer] (current-out))
+;;=> :buffer
+(current-out)
+;;=> :stdout   -- restored
+```
+
+Only vars `def`'d with `^:dynamic` are bindable this way -- `binding` on
+an ordinary Var fails. Nested `binding` forms shadow correctly
+(innermost wins, unwinding to the next-outer value on exit), since each
+`^:dynamic` Var's override is a stack, not a single slot. `binding` is
+an ordinary macro over the existing `try`/`finally` special form -- no
+new special form needed, the same way `if`/`case`/`condp` are all built
+directly on `cond`; the per-process override storage
+(`push-thread-binding!`/`pop-thread-binding!`, `Logos.Primitives`) lives
+in the calling BEAM process's own process dictionary, which is why a
+`spawn`/`spawn-link`/`spawn-monitor`ed child process does **not** see
+its parent's active binding, only the Var's root value -- a fresh
+process starts with no bindings of its own, matching real Clojure (a
+bare new thread doesn't inherit dynamic bindings either; only
+`bound-fn` does). Rebinding the innermost active binding from within its
+own `binding` scope (Clojure's `set!`) is not supported.
 
 ## 8. Interop (`import`)
 

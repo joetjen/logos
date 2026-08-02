@@ -1,0 +1,35 @@
+;; Feature test: `^:dynamic` vars and `binding` -- thread-local
+;; (per-BEAM-process) rebinding, restored on exit even if the body
+;; throws, not visible to a spawned child process. Binding a var without
+;; `^:dynamic` meta (or an unbound symbol) is a plain `{:error, ...}`
+;; eval failure, not a catchable `(throw ...)` -- `assert-throws` can't
+;; exercise that path, so it's covered instead at the ExUnit level
+;; (`test/logos/stdlib_test.exs`'s "binding (dynamic vars)" describe
+;; block), which sees `eval_string_sequence`'s raw `{:error, _}` result
+;; directly.
+
+(require '[logos.test :refer [:all]])
+(def ^:dynamic *dynvar-test-x* 1)
+(deftest binding-rebinds-and-restores
+  (assert=
+    (list *dynvar-test-x* (binding [*dynvar-test-x* 2] *dynvar-test-x*) *dynvar-test-x*)
+    (list 1 2 1)))
+(deftest binding-restores-on-throw
+  (assert=
+    (list
+      (try (binding [*dynvar-test-x* 2] (throw :dynvar-test-boom))
+        (catch :dynvar-test-boom _ *dynvar-test-x*))
+      *dynvar-test-x*)
+    (list 1 1)))
+(deftest binding-nests-and-shadows
+  (assert=
+    (binding [*dynvar-test-x* 2]
+      (list *dynvar-test-x* (binding [*dynvar-test-x* 3] *dynvar-test-x*) *dynvar-test-x*))
+    (list 2 3 2)))
+(deftest binding-not-visible-to-spawned-process
+  (do
+    (def dynvar-test-main-pid (self))
+    (binding [*dynvar-test-x* :bound]
+      (spawn (fn [] (send dynvar-test-main-pid *dynvar-test-x*))))
+    (assert= (receive [msg] (true msg)) 1)))
+(run-tests)

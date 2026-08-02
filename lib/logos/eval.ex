@@ -58,6 +58,16 @@ defmodule Logos.Eval do
       namespace's own `vars` only -- a qualified reference never follows
       the target namespace's own refers, only its directly-interned vars.
 
+  Once a Var's location (`{ns, var_name}`) is found, its *value* is
+  read via `get_var_value_dynamic_aware/3` rather than
+  `Logos.Namespace.get_var_value/3` directly: a `^:dynamic` Var
+  currently `binding`-bound in the calling BEAM process (see
+  `priv/stdlib/core.logos`'s `binding` macro and `Logos.Primitives`'
+  `push-thread-binding!`/`pop-thread-binding!`) resolves to its
+  process-local override instead of its namespace-global root value. A
+  Var that was never `binding`-bound (the overwhelming majority) is
+  completely unaffected -- this is a no-op lookup for it.
+
   ## Primitives
 
   Elixir-implemented primitives (`Logos.Primitives`, `(args, runtime)`
@@ -129,7 +139,7 @@ defmodule Logos.Eval do
 
       :error ->
         case resolve_symbol_location(sym, runtime) do
-          {:ok, {ns, var_name}} -> Namespace.get_var_value(runtime, ns, var_name)
+          {:ok, {ns, var_name}} -> get_var_value_dynamic_aware(runtime, ns, var_name)
           :error -> {:error, {:unbound_symbol, name}}
         end
     end
@@ -139,8 +149,26 @@ defmodule Logos.Eval do
   # lexical Env chain -- qualification means "definitely not a local".
   defp resolve_symbol(%Symbol{ns: ns, name: name} = sym, _env, runtime) do
     case resolve_symbol_location(sym, runtime) do
-      {:ok, {target_ns, var_name}} -> Namespace.get_var_value(runtime, target_ns, var_name)
+      {:ok, {target_ns, var_name}} -> get_var_value_dynamic_aware(runtime, target_ns, var_name)
       :error -> {:error, {:unbound_symbol, ns <> "/" <> name}}
+    end
+  end
+
+  # A `^:dynamic` Var's *effective* value is whatever the calling
+  # process's own innermost active `binding` pushed (see
+  # `Logos.Primitives`' `push-thread-binding!`/`pop-thread-binding!`),
+  # falling back to the Var's ordinary root value otherwise. The
+  # process-dictionary key is only ever present for a process currently
+  # inside a `binding` body, so a plain (never-bound) Var's resolution is
+  # completely unaffected -- this lookup is a no-op for every existing
+  # Var. See `Logos.Runtime`'s moduledoc for why this is the process
+  # dictionary (genuinely thread-local, unlike the shared `:public` ETS
+  # table Vars themselves live in) rather than another `{tag, pid}` ETS
+  # row.
+  defp get_var_value_dynamic_aware(runtime, ns, var_name) do
+    case Process.get({:logos_dynamic, ns, var_name}) do
+      [value | _rest] -> {:ok, value}
+      _empty_or_absent -> Namespace.get_var_value(runtime, ns, var_name)
     end
   end
 
@@ -288,7 +316,8 @@ defmodule Logos.Eval do
   defp meta_from_symbol(%Symbol{meta: sym_meta}, doc) do
     base = if doc, do: %{doc: doc}, else: %{}
     base = put_meta_flag(base, sym_meta, "private", :private)
-    put_meta_flag(base, sym_meta, "macro", :macro)
+    base = put_meta_flag(base, sym_meta, "macro", :macro)
+    put_meta_flag(base, sym_meta, "dynamic", :dynamic)
   end
 
   defp put_meta_flag(base, sym_meta, kw_name, atom_key) do

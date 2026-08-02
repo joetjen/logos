@@ -251,6 +251,74 @@ defmodule Logos.StdlibTest do
     end
   end
 
+  describe "binding (dynamic vars)" do
+    test "rebinds a ^:dynamic var for the extent of the body, restoring it afterward" do
+      assert {:ok, [1, 2, 1], _} =
+               run("""
+               (def ^:dynamic *stdlib-test-x* 1)
+               (list *stdlib-test-x*
+                 (binding [*stdlib-test-x* 2] *stdlib-test-x*)
+                 *stdlib-test-x*)
+               """)
+    end
+
+    test "rebinds multiple vars in one binding form" do
+      assert {:ok, [10, 20], _} =
+               run("""
+               (def ^:dynamic *stdlib-test-a* 1)
+               (def ^:dynamic *stdlib-test-b* 2)
+               (binding [*stdlib-test-a* 10 *stdlib-test-b* 20]
+                 (list *stdlib-test-a* *stdlib-test-b*))
+               """)
+    end
+
+    test "restores the previous value even when the body throws" do
+      assert {:ok, [1, 1], _} =
+               run("""
+               (def ^:dynamic *stdlib-test-y* 1)
+               (list
+                 (try (binding [*stdlib-test-y* 2] (throw :stdlib-test-boom))
+                   (catch :stdlib-test-boom _ *stdlib-test-y*))
+                 *stdlib-test-y*)
+               """)
+    end
+
+    test "nested binding shadows correctly, unwinding to the next-outer value on exit" do
+      assert {:ok, [2, 3, 2], _} =
+               run("""
+               (def ^:dynamic *stdlib-test-z* 1)
+               (binding [*stdlib-test-z* 2]
+                 (list *stdlib-test-z*
+                   (binding [*stdlib-test-z* 3] *stdlib-test-z*)
+                   *stdlib-test-z*))
+               """)
+    end
+
+    test "binding a var without ^:dynamic meta fails" do
+      assert {:error, {:not_dynamic, "stdlib-test-not-dynamic"}} =
+               run("""
+               (def stdlib-test-not-dynamic 1)
+               (binding [stdlib-test-not-dynamic 2] stdlib-test-not-dynamic)
+               """)
+    end
+
+    test "binding an unbound symbol fails" do
+      assert {:error, {:unbound_symbol, "stdlib-test-nonexistent"}} =
+               run("(binding [stdlib-test-nonexistent 2] stdlib-test-nonexistent)")
+    end
+
+    test "a spawned process sees the root value, never the parent's active binding" do
+      assert {:ok, :root, _} =
+               run_kw("""
+               (def ^:dynamic *stdlib-test-w* :root)
+               (def main-pid (self))
+               (binding [*stdlib-test-w* :bound]
+                 (spawn (fn [] (send main-pid *stdlib-test-w*))))
+               (receive [msg] (true msg))
+               """)
+    end
+  end
+
   describe "threading macros" do
     test "-> inserts x as the first argument of each form" do
       assert {:ok, 9, _} = run("(-> 1 (+ 2) (* 3))")

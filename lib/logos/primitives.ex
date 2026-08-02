@@ -21,7 +21,9 @@ defmodule Logos.Primitives do
   Besides the familiar arithmetic/comparison/list core (`+ - * / = < > <=
   >= first rest cons list throw`) and namespace machinery
   (`intern-var!`/`in-ns`/`require`/`use`/`import`, `set-macro!`/`macro?`,
-  `gensym`), two small "collection primitives" -- `vector` and `to-list`
+  `gensym`, `push-thread-binding!`/`pop-thread-binding!` -- backing
+  `core.logos`'s `binding` macro, see those primitives' own comments),
+  two small "collection primitives" -- `vector` and `to-list`
   -- exist to make `core.logos`'s `let` constructible from `list`/`cons`
   alone (see that file's comments); `concat`/`list->vector`/`list->map`/
   `list->set` support real syntax-quote desugaring
@@ -53,6 +55,7 @@ defmodule Logos.Primitives do
     apply str keyword throw
     intern-var! in-ns require use import set-macro! macro? gensym
     with-meta var-doc string? meta type-of
+    push-thread-binding! pop-thread-binding!
     concat list->vector list->map list->set
     spawn spawn-link spawn-monitor link unlink monitor demonitor
     trap-exits! exit self send receive-match! pid->atom normal-exit?
@@ -258,6 +261,62 @@ defmodule Logos.Primitives do
 
   defp apply_primitive("intern-var!", args, _runtime),
     do: {:error, {:invalid_args, "intern-var!", args}}
+
+  # `push-thread-binding!`/`pop-thread-binding!` back `core.logos`'s
+  # `binding` macro -- the Elixir-side half of dynamic vars that can't be
+  # expressed in pure Logos (BEAM process-dictionary access, and Var
+  # metadata validation). Deliberately mirror `macro?`'s resolution
+  # choice, not `set-macro!`'s: `resolve_symbol_location/2` follows the
+  # *full* chain (current namespace's own vars, then refers, then the
+  # implicit `logos.core` refer), so `(binding [*var* v] ...)` finds a
+  # `^:dynamic` Var reached only through a refer, not just one `def`'d
+  # directly in the caller's own namespace. Storage is the calling
+  # process's own dictionary, keyed `{:logos_dynamic, ns, name}` -> a
+  # stack (list, head = innermost active binding) -- see
+  # `Logos.Eval`'s `get_var_value_dynamic_aware/3` for the read side and
+  # its moduledoc for why the process dictionary (genuinely thread-local)
+  # rather than the shared `:public` Runtime table Vars themselves live
+  # in.
+  defp apply_primitive("push-thread-binding!", [%Symbol{} = sym, value], runtime) do
+    with {:ok, {ns, name}} <- Logos.Eval.resolve_symbol_location(sym, runtime),
+         {:ok, %{meta: %{dynamic: true}}} <- Namespace.get_var_row(runtime, ns, name) do
+      key = {:logos_dynamic, ns, name}
+      Process.put(key, [value | Process.get(key, [])])
+      {:ok, nil}
+    else
+      {:ok, %{meta: _}} -> {:error, {:not_dynamic, Symbol.to_string(sym)}}
+      :error -> {:error, {:unbound_symbol, Symbol.to_string(sym)}}
+    end
+  end
+
+  defp apply_primitive("push-thread-binding!", args, _runtime),
+    do: {:error, {:invalid_args, "push-thread-binding!", args}}
+
+  # The counterpart pop -- `binding`'s own generated `finally` is the only
+  # intended caller, where the stack can never be empty; `:no_active_binding`
+  # exists as a clear failure mode rather than a silent no-op if that
+  # invariant is ever violated (e.g. called directly, outside `binding`).
+  defp apply_primitive("pop-thread-binding!", [%Symbol{} = sym], runtime) do
+    case Logos.Eval.resolve_symbol_location(sym, runtime) do
+      {:ok, {ns, name}} ->
+        key = {:logos_dynamic, ns, name}
+
+        case Process.get(key, []) do
+          [_top | rest] ->
+            Process.put(key, rest)
+            {:ok, nil}
+
+          [] ->
+            {:error, {:no_active_binding, Symbol.to_string(sym)}}
+        end
+
+      :error ->
+        {:error, {:unbound_symbol, Symbol.to_string(sym)}}
+    end
+  end
+
+  defp apply_primitive("pop-thread-binding!", args, _runtime),
+    do: {:error, {:invalid_args, "pop-thread-binding!", args}}
 
   defp apply_primitive("in-ns", [%Symbol{ns: nil, name: name}], runtime) do
     Namespace.ensure!(runtime, name)

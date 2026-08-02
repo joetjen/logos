@@ -184,16 +184,22 @@ comparison chains already exist and can be reused).
       absent a default. Hit the same gensym cross-scope bug already
       documented for `cond->`/`cond->>`/`some->` -- fixed the same way.
 
-- [ ] **Dynamic vars and `binding`.** Confirmed absent -- only lexical
-      `let` and namespace-global `def` exist today; no `^:dynamic` var
-      flag, no `binding` special form/macro for a dynamically-scoped,
-      thread-local-per-BEAM-process rebind. Needs real design work: a
-      dynamic var's "current value" has to be per-process (mirroring how
-      `Logos.Runtime.current_ns/1` is already per-process, see that
-      module's own moduledoc) with a stack-like push/pop discipline
-      across `binding`'s body, which likely needs either a new special
-      form or careful use of `try`/`finally` under the hood to guarantee
-      the pop happens even if the body throws.
+- [x] **Dynamic vars and `binding`.** Done -- see `CHANGELOG.md`. Went
+      with `try`/`finally` under the hood, not a new special form, per
+      this item's own anticipated fork: `binding` is a pure
+      `priv/stdlib/core.logos` macro, with a new `^:dynamic` Var meta
+      flag and two small primitives (`push-thread-binding!`/
+      `pop-thread-binding!`) providing the Elixir-side half that can't
+      be pure Logos (dynamically-scoped symbol resolution has to be
+      intercepted in `Logos.Eval`). Per-process override storage is the
+      BEAM process dictionary, not another `{tag, pid}` row in
+      `Logos.Runtime`'s shared table like `current_ns` uses -- a
+      deliberate improvement, since dynamic bindings need to be
+      invisible to other processes (unlike `current_ns`) and the process
+      dictionary self-cleans on process exit (unlike `current_ns`'s
+      documented, accepted row-leak tradeoff). Spawned child processes
+      correctly see the root value, not an active parent binding,
+      matching real Clojure.
 
 ## Tier 3 -- lower priority / needs a product decision first
 
