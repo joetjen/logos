@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`case`/`condp`**, `ROADMAP.md`'s second Tier 2 item -- pure macros
+  over `cond`/`if`, no interpreter changes, in `priv/stdlib/core.logos`.
+  `case`'s test values are literal/unevaluated (a test may also be a
+  list of alternatives, e.g. `(1 2 3)`, matched via a generated `or`);
+  `condp`'s test values ARE evaluated expressions, tried per clause as
+  `(pred test expr)`. Both evaluate the dispatched-on expression exactly
+  once (regardless of how many clauses are tried), support a trailing
+  unpaired default form, and throw `:no-matching-clause` when nothing
+  matches and no default was given. `condp`'s `:>>` result-fn form is
+  explicitly out of scope. Hit the same gensym cross-scope bug the
+  `cond->`/`cond->>`/`some->` macros already needed fixing for earlier
+  (a manually-quoted `'g#` outside a syntax-quote does *not* refer to
+  the same symbol as `g#`'s auto-gensym *inside* it) -- fixed the same
+  way, by calling the `gensym` primitive directly and splicing the one
+  resulting value everywhere it's needed.
 - **Multimethods** (`defmulti`/`defmethod`), `ROADMAP.md`'s first
   Tier 2 item -- ad-hoc polymorphism, dispatching on the result of an
   arbitrary "dispatch function" called with a multimethod's own

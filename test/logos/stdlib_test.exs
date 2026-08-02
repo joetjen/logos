@@ -194,6 +194,63 @@ defmodule Logos.StdlibTest do
     end
   end
 
+  describe "case" do
+    test "returns the paired result for the matching literal test" do
+      assert {:ok, :two, _} = run_kw("(case 2 1 :one 2 :two 3 :three)")
+    end
+
+    test "returns the trailing default when nothing matches" do
+      assert {:ok, :other, _} = run_kw("(case 5 1 :one 2 :two :other)")
+    end
+
+    test "throws :no-matching-clause when nothing matches and there's no default" do
+      assert {:error, {:uncaught_throw, tag, 5}} = run("(case 5 1 :one 2 :two)")
+      assert %Logos.Keyword{name: "no-matching-clause"} = tag
+    end
+
+    test "a test may be a list of alternative literal values" do
+      assert {:ok, :small, _} = run_kw("(case (+ 1 1) (1 2 3) :small :big)")
+      assert {:ok, :big, _} = run_kw("(case 10 (1 2 3) :small :big)")
+    end
+
+    test "evaluates expr exactly once" do
+      runtime = rt()
+
+      assert {:ok, :two, _} =
+               run_kw(
+                 """
+                 (def stdlib-test-case-evals (atom 0))
+                 (case (do (swap! stdlib-test-case-evals (fn [n] (+ n 1))) 2)
+                   1 :one
+                   2 :two
+                   :other)
+                 """,
+                 runtime
+               )
+
+      assert {:ok, 1, _} = run("(deref stdlib-test-case-evals)", runtime)
+    end
+  end
+
+  describe "condp" do
+    test "returns the paired result for the first test where (pred test expr) is truthy" do
+      assert {:ok, :two, _} = run_kw("(condp = 2 1 :one 2 :two 3 :three)")
+    end
+
+    test "test values are evaluated expressions, unlike case" do
+      assert {:ok, :lt10, _} = run_kw("(condp > 5 10 :lt10 3 :lt3 :other)")
+    end
+
+    test "returns the trailing default when nothing matches" do
+      assert {:ok, :other, _} = run_kw("(condp = 5 1 :one 2 :two :other)")
+    end
+
+    test "throws :no-matching-clause when nothing matches and there's no default" do
+      assert {:error, {:uncaught_throw, tag, 5}} = run("(condp = 5 1 :one 2 :two)")
+      assert %Logos.Keyword{name: "no-matching-clause"} = tag
+    end
+  end
+
   describe "threading macros" do
     test "-> inserts x as the first argument of each form" do
       assert {:ok, 9, _} = run("(-> 1 (+ 2) (* 3))")

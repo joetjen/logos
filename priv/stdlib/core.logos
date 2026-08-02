@@ -731,3 +731,79 @@
   prepended to whatever arguments it's later called with."
   [f & preset]
   (fn [& more] (apply f (concat preset more))))
+;; ---- case / condp -----------------------------------------------------------------
+;; Both pure macros over `cond`/`if`, same spirit as `if` itself. `case`'s
+;; own test values are never evaluated (compared as literal data via
+;; `=`, quoted in the generated code) -- real Clojure semantics, and the
+;; whole reason `case` exists as something other than `cond` sugar:
+;; `(case x sym-name 1 ...)` compares `x` against the literal symbol
+;; `sym-name`, never resolving it as a variable reference. `condp`'s test
+;; values, by contrast, ARE evaluated expressions (its whole point is
+;; testing `expr` against each one via an arbitrary predicate, not just
+;; `=`). Neither supports `case`'s real-Clojure macro-time-constant
+;; *enforcement* (a non-literal test throws at compile time there) --
+;; this is pure Logos over `cond`, not a hash-based jump table, so a
+;; non-literal test quietly just never matches instead. `condp`'s own
+;; `:>>` result-fn form is also out of scope -- real Clojure feature,
+;; rarely used, not worth the complexity here.
+
+(def ^:private case-test-forms
+  (fn [g tests]
+    (cond
+      (= tests ()) ()
+      true (cons (list '= g (list 'quote (first tests))) (case-test-forms g (rest tests))))))
+(def ^:private case-test-form
+  "Builds the `=`-comparison form for one `case` test -- `test` may be a
+  single literal value, or a list of alternatives any one of which
+  matching selects the clause."
+  (fn [g test]
+    (if (list? test)
+      (cons 'or (case-test-forms g (to-list test)))
+      (list '= g (list 'quote test)))))
+(def ^:private case-cond
+  "Builds `case`'s expansion: a chain of `(if (test-form) result ...)`,
+  ending in a trailing default form (if given) or a
+  `:no-matching-clause` throw."
+  (fn [g clauses]
+    (cond
+      (= clauses ()) (list 'throw :no-matching-clause g)
+      (= (rest clauses) ()) (first clauses)
+      true
+      (list
+        'if
+        (case-test-form g (first clauses))
+        (first (rest clauses))
+        (case-cond g (rest (rest clauses)))))))
+(defmacro case
+  "`(case expr test1 result1 test2 result2 ... default?)` -- evaluates
+  `expr` once, compares it via `=` against each `test` in turn (each
+  `test` a LITERAL constant, never evaluated; `test` may also be a list
+  of alternative literal values, any one matching). Returns the paired
+  `result` for the first match, or the trailing unpaired `default` form
+  if given; with no default and no match, throws `:no-matching-clause`."
+  [expr & clauses]
+  ;; `g#` auto-gensym only guarantees consistency *within* one
+  ;; syntax-quote's own literal text -- `case-cond`'s own output needs
+  ;; the SAME temp both inside this `let` binding and outside it (built
+  ;; as plain data), so this calls the `gensym` primitive directly and
+  ;; splices the one resulting value everywhere, the same fix
+  ;; `cond->`/`cond->>`/`some->` (threading macros, above) already
+  ;; needed for the identical reason.
+  (let [g (gensym "case")] `(let [~g ~expr] ~(case-cond g clauses))))
+(def ^:private condp-cond
+  (fn [p g clauses]
+    (cond
+      (= clauses ()) (list 'throw :no-matching-clause g)
+      (= (rest clauses) ()) (first clauses)
+      true
+      (list 'if (list p (first clauses) g) (first (rest clauses)) (condp-cond p g (rest (rest clauses)))))))
+(defmacro condp
+  "`(condp pred expr test1 result1 test2 result2 ... default?)` --
+  evaluates `expr` once, tries `(pred test expr)` for each `test` in
+  turn (each `test` IS an evaluated expression, unlike `case`'s literal
+  constants), returning the paired `result` for the first truthy one.
+  With no default and no match, throws `:no-matching-clause`."
+  [pred expr & clauses]
+  (let [p (gensym "pred")
+      g (gensym "condp")]
+    `(let [~p ~pred ~g ~expr] ~(condp-cond p g clauses))))

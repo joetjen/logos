@@ -175,14 +175,14 @@ comparison chains already exist and can be reused).
       (the same way the multimethods item above was) before writing any
       code.
 
-- [ ] **`case` / `condp`.** Confirmed absent. `case` is Clojure's
-      constant-time-ish dispatch-by-value form (as opposed to `cond`'s
-      linear test chain); `condp` generalizes it to dispatch by an
-      arbitrary predicate against a fixed value. Both are pure macros
-      over `cond`, similar in spirit to how `if` is already built --
-      genuinely low-risk, could be pulled forward into tier 1 if it
-      turns out to matter more in practice than the current ordering
-      assumes.
+- [x] **`case` / `condp`.** Done -- see `CHANGELOG.md`. As anticipated,
+      turned out genuinely low-risk: pure macros over `cond`/`if`, no
+      interpreter changes, in `priv/stdlib/core.logos`. `case`'s test
+      values are literal/unevaluated (with multi-value clauses, e.g.
+      `(1 2 3)`); `condp`'s test values are evaluated and tried per
+      clause as `(pred test expr)`; both throw `:no-matching-clause`
+      absent a default. Hit the same gensym cross-scope bug already
+      documented for `cond->`/`cond->>`/`some->` -- fixed the same way.
 
 - [ ] **Dynamic vars and `binding`.** Confirmed absent -- only lexical
       `let` and namespace-global `def` exist today; no `^:dynamic` var

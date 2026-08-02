@@ -455,6 +455,8 @@ production namespaces, so it's only reachable once required explicitly
 | `unless` | macro | `(unless test body...)` | `nil` if `test` is truthy |
 | `and` | macro | `(and & forms)` | last-value semantics, each form evaluated at most once |
 | `or` | macro | `(or & forms)` | last-value semantics, each form evaluated at most once |
+| `case` | macro | `(case expr test1 result1 ... default?)` | `test`s are literal, unevaluated constants (or a list of alternatives); see below |
+| `condp` | macro | `(condp pred expr test1 result1 ... default?)` | `test`s ARE evaluated; tries `(pred test expr)` per clause; see below |
 | `defn` | macro | `(defn name [params...] body...)` / `(defn name "doc" [params...] body...)` / `(defn name ([p1...] b1) ([p2...] b2) ...)`, optional doc first | `def` + `fn`, multi-arity and destructuring (see 7.4) both supported; `fn` itself supports neither |
 | `defn-` | macro | same shapes as `defn` | like `defn`, but `^:private` on the resulting Var |
 | `doc` | macro | `(doc name)` | returns `name`'s docstring, or `nil` |
@@ -506,6 +508,33 @@ production namespaces, so it's only reachable once required explicitly
 | `deref` | fn | `(deref a)` | blocking request/reply against the atom's process |
 | `swap!` | fn | `(swap! a f)` | applies `f` inside the atom's own process |
 | `reset!` | fn | `(reset! a v)` | |
+
+`case`/`condp` are both pure macros over `cond`/`if`, same spirit as `if`
+itself -- not real Clojure's own hash-based jump table, so there's no
+compile-time-constant *enforcement* on `case`'s tests (a non-literal one
+quietly never matches instead of erroring). The difference between them
+is exactly which side is evaluated:
+
+```clojure
+(case 2 1 :one 2 :two 3 :three)
+;;=> :two    -- 1/2/3 are literal constants, never evaluated
+
+(case (+ 1 1) (1 2 3) :small :big)
+;;=> :small  -- a test may be a list of alternatives; any one matching wins
+
+(condp > 5 10 :lt10 3 :lt3 :other)
+;;=> :lt10   -- tries (pred test expr): (> 10 5) is truthy, so :lt10
+```
+
+`case`'s tests are literal constants, compared against `expr` via `=`,
+never evaluated as expressions (the whole reason `case` exists as
+something other than `cond` sugar -- a bare symbol test compares against
+the *symbol itself*, never resolving it as a variable reference).
+`condp`'s tests, by contrast, ARE evaluated expressions -- `condp` tries
+`(pred test expr)` for each in turn, first truthy one wins. Both
+evaluate `expr` exactly once; a trailing unpaired form is the default,
+and with no default and no match, both throw `:no-matching-clause`.
+`condp`'s real-Clojure `:>>` result-fn form isn't supported.
 
 `reduce` is 2-arity or 3-arity: `(reduce f coll)` seeds the accumulator
 from `coll`'s first element and folds over the rest (calling `(f)` with

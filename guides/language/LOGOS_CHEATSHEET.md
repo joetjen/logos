@@ -52,6 +52,8 @@ special.
 | `unless` | `(unless test body...)` | nil if true |
 | `and` | `(and & forms)` | last-value semantics |
 | `or` | `(or & forms)` | last-value semantics |
+| `case` | `(case expr t1 r1 ... default?)` | `t`s are literal, unevaluated |
+| `condp` | `(condp pred expr t1 r1 ... default?)` | `t`s ARE evaluated, tried via `(pred t expr)` |
 | `defn` | `(defn name [p...] body)` / `(defn name "doc" [p...] body)` / `(defn name ([p1] b1) ([p2] b2))` | `def` + `fn`, multi-arity + destructuring supported (params, not `fn` itself) |
 | `defn-` | same shapes as `defn` | like `defn`, but `^:private` |
 | `doc` | `(doc name)` | returns `name`'s docstring, or nil |
