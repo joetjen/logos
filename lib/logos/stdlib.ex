@@ -12,6 +12,8 @@ defmodule Logos.Stdlib do
       `take`/`drop`/`reverse`/`count`/`empty?`)
     * `priv/stdlib/concurrency.logos` -> `logos.concurrency` (`receive`,
       `atom`/`deref`/`swap!`/`reset!`)
+    * `priv/stdlib/multimethod.logos` -> `logos.multimethod`
+      (`defmulti`/`defmethod`)
     * `priv/stdlib/test.logos` -> `logos.test` (`deftest`/`assert`/
       `assert=`/`assert-throws`/`run-tests`)
 
@@ -31,8 +33,9 @@ defmodule Logos.Stdlib do
   loading order mattering beyond "core first."
 
   After every file loads, `load!/1` refers `logos.seq`/`logos.map`/
-  `logos.concurrency`'s public vars *into* `logos.core` itself
-  (`Namespace.refer!/4`). Combined with `Logos.Eval.resolve_symbol_location/2`'s
+  `logos.concurrency`/`logos.multimethod`'s public vars *into*
+  `logos.core` itself (`Namespace.refer!/4`). Combined with
+  `Logos.Eval.resolve_symbol_location/2`'s
   auto-refer-core fallback also checking `logos.core`'s own `refers` table
   (not just vars interned directly there), this is what makes e.g. `map`
   or `get` reachable unqualified from `user` or any other namespace --
@@ -56,6 +59,7 @@ defmodule Logos.Stdlib do
     {"logos.core", "core.logos"},
     {"logos.seq", "seq.logos"},
     {"logos.concurrency", "concurrency.logos"},
+    {"logos.multimethod", "multimethod.logos"},
     {"logos.test", "test.logos"}
   ]
 
@@ -68,7 +72,7 @@ defmodule Logos.Stdlib do
   # `logos.map` is primitives-only (see moduledoc) but still needs to be
   # in the post-load refer-into-core step below. `logos.test` is
   # deliberately NOT in this list -- see moduledoc.
-  @refer_into_core ~w(logos.seq logos.map logos.concurrency)
+  @refer_into_core ~w(logos.seq logos.map logos.concurrency logos.multimethod)
 
   @doc "The raw source text for `ns`'s `.logos` file (one of the namespaces in `@files` above), embedded at compile time."
   @spec source(String.t()) :: String.t()

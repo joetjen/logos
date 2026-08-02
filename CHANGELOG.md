@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multimethods** (`defmulti`/`defmethod`), `ROADMAP.md`'s first
+  Tier 2 item -- ad-hoc polymorphism, dispatching on the result of an
+  arbitrary "dispatch function" called with a multimethod's own
+  arguments (strictly more general than single-dispatch-on-first-
+  argument-type protocols). New file, `priv/stdlib/multimethod.logos`
+  -> `logos.multimethod`, referred into `logos.core` like `logos.seq`/
+  `logos.map`/`logos.concurrency`. Real Clojure semantics: `:default`
+  fallback, methods registered after a multimethod's first call take
+  effect immediately (one shared, mutable dispatch table, not a fixed
+  snapshot), `:no-method-for-dispatch-value` thrown when nothing
+  matches. No hierarchy support (`isa?`/`derive`/`prefer-method`) or
+  `remove-method`/`methods`/`get-method` introspection -- deliberately
+  out of scope for a first pass. Protocols/records (`defprotocol`/
+  `deftype`/`defrecord`) are explicitly **not** included -- they raise a
+  separate design question (what does a user-defined Logos type even
+  look like?) that multimethods don't, and are deferred to their own
+  `ROADMAP.md` item; the registry design here (a plain, shared,
+  `intern-var!`-mutated map, not an atom) reuses `logos.test`'s own
+  already-proven pattern rather than inventing a new one. Found and
+  fixed two real bugs while building this -- one a genuine language-level
+  gap, one specific to this feature's own first draft -- see "Fixed"
+  below.
 - **Destructuring in `let`/`defn`/`defn-`**, `ROADMAP.md`'s fifth tier-1
   item and the last one: a binding/param position accepts a vector
   pattern (`[a b]` positional, `[a b & more]` rest, `[a b :as whole]`
@@ -405,6 +427,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`&` (`fn`'s rest-param marker) inside a syntax-quoted macro
+  template** (found while building `defmulti`, which needs to build
+  exactly this shape -- `` `(defn ~name [& args#] ...) ``): the *same
+  bug class* as the `catch`/`finally` fix below, a second instance of
+  it. `Logos.Reader.Actions`'s `@special_form_names` (the list
+  syntax-quote auto-qualification skips) had `catch`/`finally` but not
+  `&`. A syntax-quoted `[& args#]` auto-qualified the bare `&` to e.g.
+  `user/&` (not a real Var anywhere, so resolution falls back to
+  qualifying against the current namespace) -- and a qualified symbol
+  never satisfies `Logos.Eval`'s `rest_marker?/1` (bare, `ns: nil`
+  names only), so the parameter silently stopped being recognized as a
+  rest marker at all: the resulting function came out with a *fixed*
+  arity of 2 (`&` and the following name both treated as ordinary
+  positional params) instead of "any number of arguments." Confirmed
+  end to end (`test/logos/syntax_quote_test.exs`) with a minimal macro
+  reproducing exactly this shape, independent of multimethods
+  themselves -- this was a real, general language bug, not something
+  specific to `defmulti`.
+- **A Logos map *literal* with computed elements silently didn't
+  compute them** (found in `defmulti`/`defmethod`'s own first draft):
+  `register-multimethod!` built `{:dispatch-fn dispatch-fn :methods
+  {}}` as a literal map, which -- per `Logos.Form.t()`'s own documented
+  behavior, map/vector/set literals are self-evaluating with
+  *unevaluated* elements, unlike Clojure -- stored the literal symbol
+  `dispatch-fn` as the value, not the function actually bound to that
+  parameter. Every multimethod dispatch then failed with
+  `{:not_callable, #Logos.Symbol<dispatch-fn>}`. Fixed by building the
+  map via `assoc` from `{}` instead, the same fix shape `into`/
+  `frequencies` (`priv/stdlib/seq.logos`) already needed for the
+  identical reason -- not a new class of bug, but a real instance of an
+  already-known trap, caught by an actual `mix run` smoke test before
+  it reached a test file.
 - `Logos.Repl` and `Mix.Tasks.Logos.Run` each had a private
   `format_error/1` helper that called `Exception.message/1` on a
   `%Ichor.Error{}` value -- but `Ichor.Error` is a plain struct, not an

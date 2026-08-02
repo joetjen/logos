@@ -136,21 +136,44 @@ comparison chains already exist and can be reused).
 
 ## Tier 2 -- language features (real gaps, more architecturally involved)
 
-- [ ] **Polymorphism: protocols and/or multimethods.** Confirmed
-      completely absent -- no `defprotocol`/`deftype`/`defrecord`,
-      `defmulti`/`defmethod` anywhere. The single largest architectural
-      gap on this list, and the one place where "just write it in pure
-      Logos following the existing pattern" doesn't obviously apply --
-      dispatch needs either a `type-of`-keyed table (closer to
-      multimethods, buildable in pure Logos on top of `type-of` +
-      `assoc`/`get`, no interpreter changes) or real records/type tags
-      with protocol-based dispatch (closer to real Clojure, but needs a
-      new value shape and almost certainly some Elixir-side work, not
-      pure Logos). **Plan this one explicitly** (research the two
-      designs, present a concrete recommendation, get sign-off) before
-      writing any code -- unlike everything in tier 1, there are
-      multiple genuinely different valid shapes here, not just one
-      obvious implementation.
+- [x] **Multimethods (`defmulti`/`defmethod`).** Done -- see
+      `CHANGELOG.md`. Planned explicitly first (research the two
+      designs, present a concrete recommendation): went with
+      multimethods now, deferred protocols/records as their own
+      separate item below, since they raise a genuinely different design
+      question multimethods don't (see that item). Pure
+      `priv/stdlib/multimethod.logos`, no interpreter changes, real
+      Clojure semantics (`:default` fallback, methods take effect
+      immediately once registered), the shared dispatch-table registry
+      reusing `logos.test`'s own already-proven plain-var-mutation
+      pattern rather than an atom. No hierarchy support or
+      `remove-method`/`methods`/`get-method` introspection -- a
+      deliberate scope trim, revisit if it turns out to matter. Found
+      and fixed two real bugs while building this: a genuine, general
+      language-level gap (`&` missing from syntax-quote's
+      auto-qualification exemption list -- the same bug class as the
+      earlier `catch`/`finally` fix, caught the same way, by an actual
+      smoke test before it reached a test file) and a feature-specific
+      one (a map *literal* with computed elements not evaluating them,
+      the same known trap `into`/`frequencies` already had to work
+      around).
+
+- [ ] **Protocols and records** (`defprotocol`/`deftype`/`defrecord`).
+      Deferred from the multimethods item above, on purpose -- this
+      needs its own answer to a question multimethods never raised:
+      *what does a user-defined Logos type/instance actually look
+      like?* `type-of` today only returns a fixed set of built-in tags;
+      there's no mechanism for user code to mint a new one yet. Two
+      routes, still open: (a) plain maps carrying a conventional `:type`
+      key (e.g. `{:type :point :x 1 :y 2}`), no interpreter changes --
+      protocol dispatch then becomes multimethod dispatch keyed on
+      `(:type x)`, i.e. sugar over the multimethod machinery that
+      already exists now, not a parallel mechanism; or (b) a genuine new
+      `Logos.Record` runtime value with real Elixir-side work and
+      `type-of` integration, closer to real Clojure's own performance
+      story but a materially bigger lift. **Plan this one explicitly**
+      (the same way the multimethods item above was) before writing any
+      code.
 
 - [ ] **`case` / `condp`.** Confirmed absent. `case` is Clojure's
       constant-time-ish dispatch-by-value form (as opposed to `cond`'s

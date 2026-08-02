@@ -432,13 +432,15 @@ over each file's own source at startup.
 | `seq.logos` | `logos.seq` | `map`, `filter`, `reduce`, `take`, `drop`, `reverse`, `count`, `empty?`, `nth`, `second`, `last`, `some`, `every?`, `distinct`, `sort`, `sort-by`, `frequencies`, `group-by`, `range`, `repeat`, `conj`, `peek`, `pop`, `into` -- every `coll` argument accepts list/vector/map/set/`nil` |
 | `concurrency.logos` | `logos.concurrency` | `receive`, `atom`, `deref`, `swap!`, `reset!` |
 | -- (primitives only, no `.logos` file) | `logos.map` | `get`, `assoc`, `dissoc` |
+| `multimethod.logos` | `logos.multimethod` | `defmulti`, `defmethod` -- see 7.5 |
 | `test.logos` | `logos.test` | `deftest`, `assert`, `assert=`, `assert-throws`, `run-tests` -- see 7.2 |
 
-`Logos.Stdlib.load!/1` refers `logos.seq`, `logos.concurrency`, and
-`logos.map` into `logos.core` after loading, so every function/macro in
-those three is reachable unqualified from any namespace, exactly as if
-it were all one file -- the split is purely an organizational detail of
-the implementation, not something calling code needs to think about.
+`Logos.Stdlib.load!/1` refers `logos.seq`, `logos.concurrency`,
+`logos.map`, and `logos.multimethod` into `logos.core` after loading,
+so every function/macro in those four is reachable unqualified from any
+namespace, exactly as if it were all one file -- the split is purely an
+organizational detail of the implementation, not something calling code
+needs to think about.
 **`logos.test` is deliberately excluded from this** -- testing macros
 have no business being unqualified-visible in every embedding's
 production namespaces, so it's only reachable once required explicitly
@@ -497,6 +499,8 @@ production namespaces, so it's only reachable once required explicitly
 | `min` `max` | fn | `(min a & more)` `(max a & more)` | variadic, ratio-/decimal-aware via `<`/`>` |
 | `comp` | fn | `(comp f g h)` | returns a function calling `h` then `g` then `f` |
 | `partial` | fn | `(partial f a b)` | returns a function calling `f` with `a`/`b` prepended |
+| `defmulti` | macro | `(defmulti name dispatch-fn)` | ad-hoc polymorphism, see 7.5 |
+| `defmethod` | macro | `(defmethod name dispatch-val [params...] body...)` | see 7.5 |
 | `receive` | macro | `(receive [msg] (test handler)... (after ms default)?)` | see 9.2 |
 | `atom` | fn | `(atom initial)` | spawns the atom's backing loop process |
 | `deref` | fn | `(deref a)` | blocking request/reply against the atom's process |
@@ -789,6 +793,44 @@ inherits that: `x` and `(+ x 1)` stay literal, unevaluated data, not
 `1`/`2`. Use a real call (`(list x (+ x 1))`, `(vector ...)`) when the
 value side needs to be computed, exactly as you already would anywhere
 else a Logos map/vector/set literal shows up mid-expression.
+
+### 7.5 Multimethods
+
+`defmulti`/`defmethod` -- ad-hoc polymorphism: dispatch on the *result*
+of calling an arbitrary "dispatch function" with a multimethod's own
+arguments, not (like a protocol) on the fixed type of its first
+argument. Strictly more general -- the dispatch function can look at
+any argument, several of them together, or none of them at all. Logos
+has no protocols/records yet (see `ROADMAP.md`); `defmulti`/`defmethod`
+are pure `priv/stdlib/multimethod.logos`, referred into `logos.core`
+like `logos.seq`/`logos.map`/`logos.concurrency`.
+
+```clojure
+(defmulti area :type)
+(defmethod area :circle [shape] (* 3 (:radius shape) (:radius shape)))
+(defmethod area :square [shape] (* (:side shape) (:side shape)))
+
+(area {:type :circle :radius 2})
+;;=> 12
+(area {:type :square :side 3})
+;;=> 9
+```
+
+`(defmulti name dispatch-fn)` defines `name` as an ordinary callable:
+calling it computes `(dispatch-fn args...)`, looks up whichever
+`defmethod` was registered under that value, and calls it with the same
+`args...`. `(defmethod name dispatch-val [params...] body...)` registers
+one implementation; `:default` is a reserved `dispatch-val` matched when
+nothing else does. Methods registered after a multimethod's first call
+take effect immediately -- there's a single shared, mutable dispatch
+table behind the scenes, not a fixed snapshot. Calling a multimethod
+with no matching method and no `:default` throws
+`:no-method-for-dispatch-value`.
+
+No hierarchy support (`isa?`/`derive`/`prefer-method`) and no
+`remove-method`/`methods`/`get-method` introspection -- real Clojure
+features, out of scope for now; `:default` alone covers the
+overwhelming majority of real multimethod usage.
 
 ## 8. Interop (`import`)
 

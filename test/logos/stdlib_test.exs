@@ -770,6 +770,132 @@ defmodule Logos.StdlibTest do
     end
   end
 
+  describe "logos.multimethod (defmulti / defmethod)" do
+    test "dispatches to the method matching the dispatch-fn's result" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (defmulti stdlib-test-area :type)
+          (defmethod stdlib-test-area :circle [shape] (* 3 (:radius shape) (:radius shape)))
+          (defmethod stdlib-test-area :square [shape] (* (:side shape) (:side shape)))
+          """,
+          runtime
+        )
+
+      assert {:ok, 12, _} = run(~S|(stdlib-test-area {:type :circle :radius 2})|, runtime)
+      assert {:ok, 9, _} = run(~S|(stdlib-test-area {:type :square :side 3})|, runtime)
+    end
+
+    test "the dispatch-fn can be any function, not just a keyword" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          ~S"""
+          (defmulti stdlib-test-greet-lang (fn [x] (:lang x)))
+          (defmethod stdlib-test-greet-lang :en [x] "hello")
+          """,
+          runtime
+        )
+
+      assert {:ok, "hello", _} = run(~S|(stdlib-test-greet-lang {:lang :en})|, runtime)
+    end
+
+    test ":default is used when no other method matches" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          ~S"""
+          (defmulti stdlib-test-lang-fallback :lang)
+          (defmethod stdlib-test-lang-fallback :en [x] "hello")
+          (defmethod stdlib-test-lang-fallback :default [x] "?")
+          """,
+          runtime
+        )
+
+      assert {:ok, "?", _} = run(~S|(stdlib-test-lang-fallback {:lang :fr})|, runtime)
+    end
+
+    test "throws :no-method-for-dispatch-value when nothing matches and there's no :default" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (defmulti stdlib-test-no-match (fn [x] x))
+          (defmethod stdlib-test-no-match :a [x] :got-a)
+          """,
+          runtime
+        )
+
+      assert {:error, {:uncaught_throw, tag, _thrown_value}} =
+               run("(stdlib-test-no-match :b)", runtime)
+
+      assert %Logos.Keyword{name: "no-method-for-dispatch-value"} = tag
+    end
+
+    test "dispatch-fn receives all of the multimethod's own arguments, not just the first" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (defmulti stdlib-test-multi-arg (fn [a b] (list (:type a) (:type b))))
+          (defmethod stdlib-test-multi-arg (list :circle :circle) [a b] :both-circles)
+          """,
+          runtime
+        )
+
+      assert {:ok, :both_circles, _} =
+               run_kw(
+                 "(stdlib-test-multi-arg {:type :circle} {:type :circle})",
+                 runtime
+               )
+    end
+
+    test "a method registered after the multimethod's first call is visible on the next call" do
+      runtime = rt()
+      {:ok, _, _} = run("(defmulti stdlib-test-late-method (fn [x] x))", runtime)
+
+      assert {:error, {:uncaught_throw, _tag, _thrown_value}} =
+               run("(stdlib-test-late-method :a)", runtime)
+
+      {:ok, _, _} = run("(defmethod stdlib-test-late-method :a [x] :now-works)", runtime)
+      assert {:ok, :now_works, _} = run_kw("(stdlib-test-late-method :a)", runtime)
+    end
+
+    test "defmulti/defmethod are themselves usable unqualified from any namespace (referred into logos.core)" do
+      runtime = rt()
+
+      {:ok, _, _} =
+        run(
+          """
+          (in-ns 'stdlib-test.multimethod-ns)
+          (defmulti stdlib-test-fresh-ns-mm :type)
+          (defmethod stdlib-test-fresh-ns-mm :x [v] :matched-x)
+          """,
+          runtime
+        )
+
+      assert {:ok, :matched_x, _} =
+               run_kw(
+                 "(stdlib-test.multimethod-ns/stdlib-test-fresh-ns-mm {:type :x})",
+                 runtime
+               )
+    end
+
+    test "calling defmethod for a name never defmulti'd fails as an ordinary unbound symbol, not silently wrong" do
+      runtime = rt()
+      {:ok, _, _} = run("(defmethod stdlib-test-never-defmulti-d :a [x] :oops)", runtime)
+
+      assert {:error, {:unbound_symbol, "stdlib-test-never-defmulti-d"}} =
+               run("(stdlib-test-never-defmulti-d :a)", runtime)
+    end
+  end
+
   describe "logos.test" do
     test "is loaded into every Runtime but NOT auto-referred into logos.core, unlike logos.seq/map/concurrency" do
       runtime = rt()

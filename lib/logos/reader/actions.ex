@@ -421,8 +421,22 @@ defmodule Logos.Reader.Actions do
   # `try_clause?/1`'s `ns: nil` check -- the whole clause silently stops
   # being recognized as a catch at all, becoming dead body code instead,
   # and the exception it was meant to catch propagates uncaught.
+  #
+  # `&` is `fn`'s own rest-param marker (`Logos.Eval`'s private
+  # `rest_marker?/1`, same `ns: nil`-by-bare-name recognition as
+  # `try_clause?/1` above) -- a second instance of the *exact* same bug
+  # class, found while writing a macro that syntax-quotes its own
+  # `[& args#]` params vector (`defmulti`, `multimethod.logos`): a
+  # syntax-quoted `[& args#]` auto-qualified the bare `&` to e.g.
+  # `some-ns/&`, so `rest_marker?/1` silently stopped recognizing it,
+  # `variadic?` came out `false`, and the resulting function had a fixed
+  # arity of 2 (`&` and `args#` both treated as ordinary positional
+  # params) instead of "any number of arguments." `&` isn't a binding
+  # name a template itself introduces (the `x#` auto-gensym convention
+  # this module's own moduledoc describes doesn't apply to it) -- it's a
+  # fixed structural marker, same category as `catch`/`finally`.
   @special_form_names ~w(
-    quote cond do def fn try catch finally quasiquote unquote unquote-splice var with-meta
+    quote cond do def fn try catch finally quasiquote unquote unquote-splice var with-meta &
   )
 
   @doc """

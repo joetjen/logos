@@ -118,11 +118,11 @@ defmodule Logos.SyntaxQuoteTest do
       assert {:ok, %Symbol{ns: "user", name: "foo"}} = read_eval("`foo", runtime)
     end
 
-    test "special forms (quote cond do def fn try catch finally) are never auto-qualified" do
+    test "special forms (quote cond do def fn try catch finally &) are never auto-qualified" do
       runtime = rt()
 
-      {:ok, [q, cond_s, do_s, def_s, fn_s, try_s, catch_s, finally_s]} =
-        read_eval("`(quote cond do def fn try catch finally)", runtime)
+      {:ok, [q, cond_s, do_s, def_s, fn_s, try_s, catch_s, finally_s, rest_s]} =
+        read_eval("`(quote cond do def fn try catch finally &)", runtime)
 
       assert %Symbol{ns: nil, name: "quote"} = q
       assert %Symbol{ns: nil, name: "cond"} = cond_s
@@ -132,6 +132,28 @@ defmodule Logos.SyntaxQuoteTest do
       assert %Symbol{ns: nil, name: "try"} = try_s
       assert %Symbol{ns: nil, name: "catch"} = catch_s
       assert %Symbol{ns: nil, name: "finally"} = finally_s
+      assert %Symbol{ns: nil, name: "&"} = rest_s
+    end
+
+    test "a syntax-quoted [& args#] params vector inside a macro's own template is actually variadic, end to end" do
+      # Regression test: `&` was missing from `@special_form_names` --
+      # a syntax-quoted `[& args#]` auto-qualified the bare `&` to e.g.
+      # `user/&` (not a real Var, so it falls back to qualifying against
+      # the current namespace), and a QUALIFIED symbol never satisfies
+      # `Logos.Eval`'s `rest_marker?/1` (`ns: nil` only) -- the
+      # resulting function silently came out with `variadic?: false` and
+      # a fixed arity of 2 (`&` and `args#` both treated as ordinary
+      # positional params) instead of "any number of arguments." Found
+      # while writing `defmulti` (`priv/stdlib/multimethod.logos`),
+      # which syntax-quotes exactly this shape.
+      source = """
+      (defmacro syntax-quote-test-variadic [name]
+        `(defn ~name [& args#] args#))
+      (syntax-quote-test-variadic syntax-quote-test-fn)
+      (syntax-quote-test-fn 1 2 3)
+      """
+
+      assert {:ok, [1, 2, 3], _} = Logos.eval_string_sequence(source)
     end
 
     test "a syntax-quoted (catch ...) clause inside a macro's own template actually catches, end to end" do
