@@ -7,6 +7,16 @@ defmodule Logos.Printer do
   that requirement -- they print informatively but have no reader syntax
   to read back into.
 
+  **One deliberate, narrower exception**: `#inst`/`#uuid` tagged
+  literals (`Logos.DataReaders`, `priv/grammar/logos.aether`'s
+  `tagged_literal` rule) resolve to plain Logos *strings*, not a
+  dedicated value type -- `print/1` has no way to know a given string
+  originated from `#inst "..."` rather than an ordinary `"..."`
+  literal, so it prints back as an ordinary quoted string, not
+  `#inst "..."`. Unlike the `Pid`/`Atom`/`Fn` exemption above (a whole
+  value *type* with no reader syntax at all), this is a narrower,
+  string-specific round-trip gap -- see `test/logos/reader_test.exs`.
+
   Every `Logos.Form.t()` case (the 14-case table in `lib/logos/form.ex`)
   prints in a shape `Logos.Reader.read/1` can read back to an `==`-equal
   value -- see `test/logos/printer_test.exs` for the actual round-trip

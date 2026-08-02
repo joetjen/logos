@@ -219,11 +219,14 @@ comparison chains already exist and can be reused).
       `Logos.ProcessCrash` with the identical `reason` shape. Confirmed
       TCO wasn't broken (`test/logos/tco_test.exs`'s 10,000,000-
       iteration test re-run specifically).
-- [ ] **Reader tagged literals** (`#inst`, `#uuid`, and a general
-      extensible tagged-literal mechanism) and **reader conditionals**
-      (`#?(:clj ...)`) -- lower priority since Logos has exactly one
-      target platform (itself), so reader conditionals in particular may
-      never be worth the complexity.
+- [x] **Reader tagged literals** (`#inst`, `#uuid`, and a general
+      extensible tagged-literal mechanism). Done -- see `CHANGELOG.md`.
+      Went with the full, genuinely extensible route (a per-`Runtime`
+      registry, `register-data-reader!`), matching real Clojure's own
+      `*data-readers*` design. **Reader conditionals excluded on
+      purpose** -- this item's own reasoning (Logos has exactly one
+      target platform, itself, so they may never be worth the
+      complexity) held up under actual research; not revisited.
 - [ ] **Transients** and **persistent sorted collections**
       (`sorted-map`/`sorted-set`) -- genuine Clojure features, but
       narrower/perf-oriented; revisit if a concrete real-world use case

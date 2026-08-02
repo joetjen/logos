@@ -188,6 +188,13 @@ defmodule Logos.Reader.Generated do
       end
     end
 
+    def lex_token__HASH(input) do
+      case input do
+        <<"#", rest::binary>> -> {:ok, "#", rest}
+        _ -> :fail
+      end
+    end
+
     def lex_token__QUOTE(input) do
       case input do
         <<"'", rest::binary>> -> {:ok, "'", rest}
@@ -744,6 +751,12 @@ defmodule Logos.Reader.Generated do
         end,
         HASH_QUOTE: fn ->
           case lex_token__HASH_QUOTE(input) do
+            {:ok, text, rest} -> {:ok, text, rest, nil}
+            :fail -> :fail
+          end
+        end,
+        HASH: fn ->
+          case lex_token__HASH(input) do
             {:ok, text, rest} -> {:ok, text, rest, nil}
             :fail -> :fail
           end
@@ -1358,6 +1371,16 @@ defmodule Logos.Reader.Generated do
     end
 
     def parse_expr__62(stream, pos, ref_stack, context) do
+      case parse_rule__tagged_literal(stream, pos, ref_stack, context) do
+        {:ok, new_pos, new_ref_stack, sub_captures} ->
+          {:ok, new_pos, new_ref_stack, %{tagged_literal: {:rule, :tagged_literal, sub_captures}}}
+
+        _fail ->
+          :fail
+      end
+    end
+
+    def parse_expr__63(stream, pos, ref_stack, context) do
       case parse_rule__atom(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{atom: {:rule, :atom, sub_captures}}}
@@ -1377,7 +1400,8 @@ defmodule Logos.Reader.Generated do
           &parse_expr__59/4,
           &parse_expr__60/4,
           &parse_expr__61/4,
-          &parse_expr__62/4
+          &parse_expr__62/4,
+          &parse_expr__63/4
         ],
         stream,
         pos,
@@ -1386,7 +1410,7 @@ defmodule Logos.Reader.Generated do
       )
     end
 
-    def parse_expr__63(stream, pos, ref_stack, _context) do
+    def parse_expr__64(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :HASH_UNDERSCORE) do
         {:ok, new_pos, text, nil} ->
           {:ok, new_pos, ref_stack, %{HASH_UNDERSCORE: {:token, :HASH_UNDERSCORE, text}}}
@@ -1399,18 +1423,18 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__65(stream, pos, ref_stack, _context) do
+    def parse_expr__66(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
       end
     end
 
-    def parse_expr__64(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__65/4, stream, pos, ref_stack, context)
+    def parse_expr__65(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__66/4, stream, pos, ref_stack, context)
     end
 
-    def parse_expr__66(stream, pos, ref_stack, context) do
+    def parse_expr__67(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
@@ -1421,16 +1445,16 @@ defmodule Logos.Reader.Generated do
     end
 
     def parse_rule__datum_comment(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__63(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__64(stream, pos1, ref1, context),
-           {:ok, pos3, ref3, cap2} <- parse_expr__66(stream, pos2, ref2, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__64(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__65(stream, pos1, ref1, context),
+           {:ok, pos3, ref3, cap2} <- parse_expr__67(stream, pos2, ref2, context) do
         {:ok, pos3, ref3, Parser.merge_captures(cap0, Parser.merge_captures(cap1, cap2))}
       else
         _fail -> :fail
       end
     end
 
-    def parse_expr__67(stream, pos, ref_stack, _context) do
+    def parse_expr__68(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :HASH_LPAREN) do
         {:ok, new_pos, text, nil} ->
           {:ok, new_pos, ref_stack, %{HASH_LPAREN: {:token, :HASH_LPAREN, text}}}
@@ -1443,18 +1467,18 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__69(stream, pos, ref_stack, _context) do
+    def parse_expr__70(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
       end
     end
 
-    def parse_expr__68(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__69/4, stream, pos, ref_stack, context)
+    def parse_expr__69(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__70/4, stream, pos, ref_stack, context)
     end
 
-    def parse_expr__72(stream, pos, ref_stack, context) do
+    def parse_expr__73(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
@@ -1464,65 +1488,65 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__76(stream, pos, ref_stack, _context) do
+    def parse_expr__77(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
+      end
+    end
+
+    def parse_expr__76(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__77/4, stream, pos, ref_stack, context)
+    end
+
+    def parse_expr__78(stream, pos, ref_stack, context) do
+      case parse_rule__form(stream, pos, ref_stack, context) do
+        {:ok, new_pos, new_ref_stack, sub_captures} ->
+          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+
+        _fail ->
+          :fail
       end
     end
 
     def parse_expr__75(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__76/4, stream, pos, ref_stack, context)
-    end
-
-    def parse_expr__77(stream, pos, ref_stack, context) do
-      case parse_rule__form(stream, pos, ref_stack, context) do
-        {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
-
-        _fail ->
-          :fail
+      with {:ok, pos1, ref1, cap0} <- parse_expr__76(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__78(stream, pos1, ref1, context) do
+        {:ok, pos2, ref2, Parser.merge_captures(cap0, cap1)}
+      else
+        _fail -> :fail
       end
     end
 
     def parse_expr__74(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__75(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__77(stream, pos1, ref1, context) do
+      Parser.rep(&parse_expr__75/4, 0, :infinity, stream, pos, ref_stack, context)
+    end
+
+    def parse_expr__72(stream, pos, ref_stack, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__73(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__74(stream, pos1, ref1, context) do
         {:ok, pos2, ref2, Parser.merge_captures(cap0, cap1)}
       else
         _fail -> :fail
       end
-    end
-
-    def parse_expr__73(stream, pos, ref_stack, context) do
-      Parser.rep(&parse_expr__74/4, 0, :infinity, stream, pos, ref_stack, context)
     end
 
     def parse_expr__71(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__72(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__73(stream, pos1, ref1, context) do
-        {:ok, pos2, ref2, Parser.merge_captures(cap0, cap1)}
-      else
-        _fail -> :fail
-      end
+      Parser.opt(&parse_expr__72/4, stream, pos, ref_stack, context)
     end
 
-    def parse_expr__70(stream, pos, ref_stack, context) do
-      Parser.opt(&parse_expr__71/4, stream, pos, ref_stack, context)
-    end
-
-    def parse_expr__79(stream, pos, ref_stack, _context) do
+    def parse_expr__80(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
       end
     end
 
-    def parse_expr__78(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__79/4, stream, pos, ref_stack, context)
+    def parse_expr__79(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__80/4, stream, pos, ref_stack, context)
     end
 
-    def parse_expr__80(stream, pos, ref_stack, _context) do
+    def parse_expr__81(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :RPAREN) do
         {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{RPAREN: {:token, :RPAREN, text}}}
         {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{RPAREN: capture}}
@@ -1531,11 +1555,11 @@ defmodule Logos.Reader.Generated do
     end
 
     def parse_rule__anon_fn_sugar(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__67(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__68(stream, pos1, ref1, context),
-           {:ok, pos3, ref3, cap2} <- parse_expr__70(stream, pos2, ref2, context),
-           {:ok, pos4, ref4, cap3} <- parse_expr__78(stream, pos3, ref3, context),
-           {:ok, pos5, ref5, cap4} <- parse_expr__80(stream, pos4, ref4, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__68(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__69(stream, pos1, ref1, context),
+           {:ok, pos3, ref3, cap2} <- parse_expr__71(stream, pos2, ref2, context),
+           {:ok, pos4, ref4, cap3} <- parse_expr__79(stream, pos3, ref3, context),
+           {:ok, pos5, ref5, cap4} <- parse_expr__81(stream, pos4, ref4, context) do
         {:ok, pos5, ref5,
          Parser.merge_captures(
            cap0,
@@ -1549,7 +1573,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__81(stream, pos, ref_stack, _context) do
+    def parse_expr__82(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :LBRACKET) do
         {:ok, new_pos, text, nil} ->
           {:ok, new_pos, ref_stack, %{LBRACKET: {:token, :LBRACKET, text}}}
@@ -1562,18 +1586,18 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__83(stream, pos, ref_stack, _context) do
+    def parse_expr__84(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
       end
     end
 
-    def parse_expr__82(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__83/4, stream, pos, ref_stack, context)
+    def parse_expr__83(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__84/4, stream, pos, ref_stack, context)
     end
 
-    def parse_expr__86(stream, pos, ref_stack, context) do
+    def parse_expr__87(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
@@ -1583,65 +1607,65 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__90(stream, pos, ref_stack, _context) do
+    def parse_expr__91(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
+      end
+    end
+
+    def parse_expr__90(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__91/4, stream, pos, ref_stack, context)
+    end
+
+    def parse_expr__92(stream, pos, ref_stack, context) do
+      case parse_rule__form(stream, pos, ref_stack, context) do
+        {:ok, new_pos, new_ref_stack, sub_captures} ->
+          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+
+        _fail ->
+          :fail
       end
     end
 
     def parse_expr__89(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__90/4, stream, pos, ref_stack, context)
-    end
-
-    def parse_expr__91(stream, pos, ref_stack, context) do
-      case parse_rule__form(stream, pos, ref_stack, context) do
-        {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
-
-        _fail ->
-          :fail
+      with {:ok, pos1, ref1, cap0} <- parse_expr__90(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__92(stream, pos1, ref1, context) do
+        {:ok, pos2, ref2, Parser.merge_captures(cap0, cap1)}
+      else
+        _fail -> :fail
       end
     end
 
     def parse_expr__88(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__89(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__91(stream, pos1, ref1, context) do
+      Parser.rep(&parse_expr__89/4, 0, :infinity, stream, pos, ref_stack, context)
+    end
+
+    def parse_expr__86(stream, pos, ref_stack, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__87(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__88(stream, pos1, ref1, context) do
         {:ok, pos2, ref2, Parser.merge_captures(cap0, cap1)}
       else
         _fail -> :fail
       end
-    end
-
-    def parse_expr__87(stream, pos, ref_stack, context) do
-      Parser.rep(&parse_expr__88/4, 0, :infinity, stream, pos, ref_stack, context)
     end
 
     def parse_expr__85(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__86(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__87(stream, pos1, ref1, context) do
-        {:ok, pos2, ref2, Parser.merge_captures(cap0, cap1)}
-      else
-        _fail -> :fail
-      end
+      Parser.opt(&parse_expr__86/4, stream, pos, ref_stack, context)
     end
 
-    def parse_expr__84(stream, pos, ref_stack, context) do
-      Parser.opt(&parse_expr__85/4, stream, pos, ref_stack, context)
-    end
-
-    def parse_expr__93(stream, pos, ref_stack, _context) do
+    def parse_expr__94(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
       end
     end
 
-    def parse_expr__92(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__93/4, stream, pos, ref_stack, context)
+    def parse_expr__93(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__94/4, stream, pos, ref_stack, context)
     end
 
-    def parse_expr__94(stream, pos, ref_stack, _context) do
+    def parse_expr__95(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :RBRACKET) do
         {:ok, new_pos, text, nil} ->
           {:ok, new_pos, ref_stack, %{RBRACKET: {:token, :RBRACKET, text}}}
@@ -1655,11 +1679,11 @@ defmodule Logos.Reader.Generated do
     end
 
     def parse_rule__vector(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__81(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__82(stream, pos1, ref1, context),
-           {:ok, pos3, ref3, cap2} <- parse_expr__84(stream, pos2, ref2, context),
-           {:ok, pos4, ref4, cap3} <- parse_expr__92(stream, pos3, ref3, context),
-           {:ok, pos5, ref5, cap4} <- parse_expr__94(stream, pos4, ref4, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__82(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__83(stream, pos1, ref1, context),
+           {:ok, pos3, ref3, cap2} <- parse_expr__85(stream, pos2, ref2, context),
+           {:ok, pos4, ref4, cap3} <- parse_expr__93(stream, pos3, ref3, context),
+           {:ok, pos5, ref5, cap4} <- parse_expr__95(stream, pos4, ref4, context) do
         {:ok, pos5, ref5,
          Parser.merge_captures(
            cap0,
@@ -1673,7 +1697,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__95(stream, pos, ref_stack, context) do
+    def parse_expr__96(stream, pos, ref_stack, context) do
       case parse_rule__quote_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{quote_sugar: {:rule, :quote_sugar, sub_captures}}}
@@ -1683,7 +1707,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__96(stream, pos, ref_stack, context) do
+    def parse_expr__97(stream, pos, ref_stack, context) do
       case parse_rule__quasiquote_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack,
@@ -1694,7 +1718,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__97(stream, pos, ref_stack, context) do
+    def parse_expr__98(stream, pos, ref_stack, context) do
       case parse_rule__unquote_splice_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack,
@@ -1705,7 +1729,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__98(stream, pos, ref_stack, context) do
+    def parse_expr__99(stream, pos, ref_stack, context) do
       case parse_rule__unquote_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{unquote_sugar: {:rule, :unquote_sugar, sub_captures}}}
@@ -1715,7 +1739,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__99(stream, pos, ref_stack, context) do
+    def parse_expr__100(stream, pos, ref_stack, context) do
       case parse_rule__var_quote_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack,
@@ -1726,7 +1750,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__100(stream, pos, ref_stack, context) do
+    def parse_expr__101(stream, pos, ref_stack, context) do
       case parse_rule__meta_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{meta_sugar: {:rule, :meta_sugar, sub_captures}}}
@@ -1739,12 +1763,12 @@ defmodule Logos.Reader.Generated do
     def parse_rule__reader_macro(stream, pos, ref_stack, context) do
       Parser.try_alts(
         [
-          &parse_expr__95/4,
           &parse_expr__96/4,
           &parse_expr__97/4,
           &parse_expr__98/4,
           &parse_expr__99/4,
-          &parse_expr__100/4
+          &parse_expr__100/4,
+          &parse_expr__101/4
         ],
         stream,
         pos,
@@ -1753,55 +1777,30 @@ defmodule Logos.Reader.Generated do
       )
     end
 
-    def parse_expr__101(stream, pos, ref_stack, _context) do
-      case Parser.match_token(stream, pos, :QUOTE) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{QUOTE: {:token, :QUOTE, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{QUOTE: capture}}
+    def parse_expr__102(stream, pos, ref_stack, _context) do
+      case Parser.match_token(stream, pos, :HASH) do
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{HASH: {:token, :HASH, text}}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{HASH: capture}}
         :fail -> :fail
       end
     end
 
-    def parse_expr__103(stream, pos, ref_stack, _context) do
+    def parse_expr__104(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
       end
     end
 
-    def parse_expr__102(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__103/4, stream, pos, ref_stack, context)
-    end
-
-    def parse_expr__104(stream, pos, ref_stack, context) do
-      case parse_rule__form(stream, pos, ref_stack, context) do
-        {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
-
-        _fail ->
-          :fail
-      end
-    end
-
-    def parse_rule__quote_sugar(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__101(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__102(stream, pos1, ref1, context),
-           {:ok, pos3, ref3, cap2} <- parse_expr__104(stream, pos2, ref2, context) do
-        {:ok, pos3, ref3, Parser.merge_captures(cap0, Parser.merge_captures(cap1, cap2))}
-      else
-        _fail -> :fail
-      end
+    def parse_expr__103(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__104/4, stream, pos, ref_stack, context)
     end
 
     def parse_expr__105(stream, pos, ref_stack, _context) do
-      case Parser.match_token(stream, pos, :BACKTICK) do
-        {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{BACKTICK: {:token, :BACKTICK, text}}}
-
-        {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{BACKTICK: capture}}
-
-        :fail ->
-          :fail
+      case Parser.match_token(stream, pos, :SYMBOL) do
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{tag: {:token, :SYMBOL, text}}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{tag: capture}}
+        :fail -> :fail
       end
     end
 
@@ -1819,33 +1818,37 @@ defmodule Logos.Reader.Generated do
     def parse_expr__108(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, %{value: {:rule, :form, sub_captures}}}
 
         _fail ->
           :fail
       end
     end
 
-    def parse_rule__quasiquote_sugar(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__105(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__106(stream, pos1, ref1, context),
-           {:ok, pos3, ref3, cap2} <- parse_expr__108(stream, pos2, ref2, context) do
-        {:ok, pos3, ref3, Parser.merge_captures(cap0, Parser.merge_captures(cap1, cap2))}
+    def parse_rule__tagged_literal(stream, pos, ref_stack, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__102(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__103(stream, pos1, ref1, context),
+           {:ok, pos3, ref3, cap2} <- parse_expr__105(stream, pos2, ref2, context),
+           {:ok, pos4, ref4, cap3} <- parse_expr__106(stream, pos3, ref3, context),
+           {:ok, pos5, ref5, cap4} <- parse_expr__108(stream, pos4, ref4, context) do
+        {:ok, pos5, ref5,
+         Parser.merge_captures(
+           cap0,
+           Parser.merge_captures(
+             cap1,
+             Parser.merge_captures(cap2, Parser.merge_captures(cap3, cap4))
+           )
+         )}
       else
         _fail -> :fail
       end
     end
 
     def parse_expr__109(stream, pos, ref_stack, _context) do
-      case Parser.match_token(stream, pos, :TILDE_AT) do
-        {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{TILDE_AT: {:token, :TILDE_AT, text}}}
-
-        {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{TILDE_AT: capture}}
-
-        :fail ->
-          :fail
+      case Parser.match_token(stream, pos, :QUOTE) do
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{QUOTE: {:token, :QUOTE, text}}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{QUOTE: capture}}
+        :fail -> :fail
       end
     end
 
@@ -1870,7 +1873,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_rule__unquote_splice_sugar(stream, pos, ref_stack, context) do
+    def parse_rule__quote_sugar(stream, pos, ref_stack, context) do
       with {:ok, pos1, ref1, cap0} <- parse_expr__109(stream, pos, ref_stack, context),
            {:ok, pos2, ref2, cap1} <- parse_expr__110(stream, pos1, ref1, context),
            {:ok, pos3, ref3, cap2} <- parse_expr__112(stream, pos2, ref2, context) do
@@ -1881,10 +1884,15 @@ defmodule Logos.Reader.Generated do
     end
 
     def parse_expr__113(stream, pos, ref_stack, _context) do
-      case Parser.match_token(stream, pos, :TILDE) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{TILDE: {:token, :TILDE, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{TILDE: capture}}
-        :fail -> :fail
+      case Parser.match_token(stream, pos, :BACKTICK) do
+        {:ok, new_pos, text, nil} ->
+          {:ok, new_pos, ref_stack, %{BACKTICK: {:token, :BACKTICK, text}}}
+
+        {:ok, new_pos, _text, capture} ->
+          {:ok, new_pos, ref_stack, %{BACKTICK: capture}}
+
+        :fail ->
+          :fail
       end
     end
 
@@ -1909,7 +1917,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_rule__unquote_sugar(stream, pos, ref_stack, context) do
+    def parse_rule__quasiquote_sugar(stream, pos, ref_stack, context) do
       with {:ok, pos1, ref1, cap0} <- parse_expr__113(stream, pos, ref_stack, context),
            {:ok, pos2, ref2, cap1} <- parse_expr__114(stream, pos1, ref1, context),
            {:ok, pos3, ref3, cap2} <- parse_expr__116(stream, pos2, ref2, context) do
@@ -1920,12 +1928,12 @@ defmodule Logos.Reader.Generated do
     end
 
     def parse_expr__117(stream, pos, ref_stack, _context) do
-      case Parser.match_token(stream, pos, :HASH_QUOTE) do
+      case Parser.match_token(stream, pos, :TILDE_AT) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{HASH_QUOTE: {:token, :HASH_QUOTE, text}}}
+          {:ok, new_pos, ref_stack, %{TILDE_AT: {:token, :TILDE_AT, text}}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{HASH_QUOTE: capture}}
+          {:ok, new_pos, ref_stack, %{TILDE_AT: capture}}
 
         :fail ->
           :fail
@@ -1953,7 +1961,7 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_rule__var_quote_sugar(stream, pos, ref_stack, context) do
+    def parse_rule__unquote_splice_sugar(stream, pos, ref_stack, context) do
       with {:ok, pos1, ref1, cap0} <- parse_expr__117(stream, pos, ref_stack, context),
            {:ok, pos2, ref2, cap1} <- parse_expr__118(stream, pos1, ref1, context),
            {:ok, pos3, ref3, cap2} <- parse_expr__120(stream, pos2, ref2, context) do
@@ -1964,9 +1972,9 @@ defmodule Logos.Reader.Generated do
     end
 
     def parse_expr__121(stream, pos, ref_stack, _context) do
-      case Parser.match_token(stream, pos, :CARET) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{CARET: {:token, :CARET, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{CARET: capture}}
+      case Parser.match_token(stream, pos, :TILDE) do
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{TILDE: {:token, :TILDE, text}}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{TILDE: capture}}
         :fail -> :fail
       end
     end
@@ -1985,6 +1993,89 @@ defmodule Logos.Reader.Generated do
     def parse_expr__124(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
+          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+
+        _fail ->
+          :fail
+      end
+    end
+
+    def parse_rule__unquote_sugar(stream, pos, ref_stack, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__121(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__122(stream, pos1, ref1, context),
+           {:ok, pos3, ref3, cap2} <- parse_expr__124(stream, pos2, ref2, context) do
+        {:ok, pos3, ref3, Parser.merge_captures(cap0, Parser.merge_captures(cap1, cap2))}
+      else
+        _fail -> :fail
+      end
+    end
+
+    def parse_expr__125(stream, pos, ref_stack, _context) do
+      case Parser.match_token(stream, pos, :HASH_QUOTE) do
+        {:ok, new_pos, text, nil} ->
+          {:ok, new_pos, ref_stack, %{HASH_QUOTE: {:token, :HASH_QUOTE, text}}}
+
+        {:ok, new_pos, _text, capture} ->
+          {:ok, new_pos, ref_stack, %{HASH_QUOTE: capture}}
+
+        :fail ->
+          :fail
+      end
+    end
+
+    def parse_expr__127(stream, pos, ref_stack, _context) do
+      case Parser.match_token(stream, pos, :TRIVIA) do
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        :fail -> :fail
+      end
+    end
+
+    def parse_expr__126(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__127/4, stream, pos, ref_stack, context)
+    end
+
+    def parse_expr__128(stream, pos, ref_stack, context) do
+      case parse_rule__form(stream, pos, ref_stack, context) do
+        {:ok, new_pos, new_ref_stack, sub_captures} ->
+          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+
+        _fail ->
+          :fail
+      end
+    end
+
+    def parse_rule__var_quote_sugar(stream, pos, ref_stack, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__125(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__126(stream, pos1, ref1, context),
+           {:ok, pos3, ref3, cap2} <- parse_expr__128(stream, pos2, ref2, context) do
+        {:ok, pos3, ref3, Parser.merge_captures(cap0, Parser.merge_captures(cap1, cap2))}
+      else
+        _fail -> :fail
+      end
+    end
+
+    def parse_expr__129(stream, pos, ref_stack, _context) do
+      case Parser.match_token(stream, pos, :CARET) do
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{CARET: {:token, :CARET, text}}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{CARET: capture}}
+        :fail -> :fail
+      end
+    end
+
+    def parse_expr__131(stream, pos, ref_stack, _context) do
+      case Parser.match_token(stream, pos, :TRIVIA) do
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        :fail -> :fail
+      end
+    end
+
+    def parse_expr__130(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__131/4, stream, pos, ref_stack, context)
+    end
+
+    def parse_expr__132(stream, pos, ref_stack, context) do
+      case parse_rule__form(stream, pos, ref_stack, context) do
+        {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{meta: {:rule, :form, sub_captures}}}
 
         _fail ->
@@ -1992,18 +2083,18 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def parse_expr__126(stream, pos, ref_stack, _context) do
+    def parse_expr__134(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
         {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
         :fail -> :fail
       end
     end
 
-    def parse_expr__125(stream, pos, ref_stack, context) do
-      Parser.star(&parse_expr__126/4, stream, pos, ref_stack, context)
+    def parse_expr__133(stream, pos, ref_stack, context) do
+      Parser.star(&parse_expr__134/4, stream, pos, ref_stack, context)
     end
 
-    def parse_expr__127(stream, pos, ref_stack, context) do
+    def parse_expr__135(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack, %{target: {:rule, :form, sub_captures}}}
@@ -2014,11 +2105,11 @@ defmodule Logos.Reader.Generated do
     end
 
     def parse_rule__meta_sugar(stream, pos, ref_stack, context) do
-      with {:ok, pos1, ref1, cap0} <- parse_expr__121(stream, pos, ref_stack, context),
-           {:ok, pos2, ref2, cap1} <- parse_expr__122(stream, pos1, ref1, context),
-           {:ok, pos3, ref3, cap2} <- parse_expr__124(stream, pos2, ref2, context),
-           {:ok, pos4, ref4, cap3} <- parse_expr__125(stream, pos3, ref3, context),
-           {:ok, pos5, ref5, cap4} <- parse_expr__127(stream, pos4, ref4, context) do
+      with {:ok, pos1, ref1, cap0} <- parse_expr__129(stream, pos, ref_stack, context),
+           {:ok, pos2, ref2, cap1} <- parse_expr__130(stream, pos1, ref1, context),
+           {:ok, pos3, ref3, cap2} <- parse_expr__132(stream, pos2, ref2, context),
+           {:ok, pos4, ref4, cap3} <- parse_expr__133(stream, pos3, ref3, context),
+           {:ok, pos5, ref5, cap4} <- parse_expr__135(stream, pos4, ref4, context) do
         {:ok, pos5, ref5,
          Parser.merge_captures(
            cap0,
@@ -2084,6 +2175,7 @@ defmodule Logos.Reader.Generated do
                anon_fn_sugar: MapSet.new([:form]),
                vector: MapSet.new([:form]),
                reader_macro: MapSet.new([]),
+               tagged_literal: MapSet.new([]),
                quote_sugar: MapSet.new([]),
                quasiquote_sugar: MapSet.new([]),
                unquote_splice_sugar: MapSet.new([]),
@@ -2123,6 +2215,7 @@ defmodule Logos.Reader.Generated do
                    anon_fn_sugar: MapSet.new([:form]),
                    vector: MapSet.new([:form]),
                    reader_macro: MapSet.new([]),
+                   tagged_literal: MapSet.new([]),
                    quote_sugar: MapSet.new([]),
                    quasiquote_sugar: MapSet.new([]),
                    unquote_splice_sugar: MapSet.new([]),

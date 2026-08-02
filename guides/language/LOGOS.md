@@ -51,6 +51,7 @@ so that a call in tail position is a genuine Elixir tail call.
 | `#(...)` | anonymous-fn sugar, see below |
 | `^meta target` | attaches `meta` to `target` (a symbol's `.meta` field; a `(with-meta ...)` placeholder for anything else) |
 | `#_form` | datum comment -- reads and discards exactly one following form |
+| `#tag value` | tagged literal -- see below |
 | `; comment` | line comment |
 
 `^meta` accepts any form: a bare keyword like `^:private` is shorthand for
@@ -68,6 +69,51 @@ shorthand for `%1`:
 (#(+ %1 %2) 3 4)
 ;;=> 7
 ```
+
+#### Tagged literals (`#tag value`)
+
+```clojure
+#inst "2020-01-01T00:00:00Z"   ;;=> "2020-01-01T00:00:00Z"
+#uuid "550e8400-e29b-41d4-a716-446655440000"
+```
+
+Resolved at **read time** (before evaluation, like every other literal
+-- `` '#inst "..." `` still yields the resolved value under `quote`, not
+an unevaluated call form) against `Logos.Runtime`'s per-`Runtime`
+`#tag`-registry -- `#inst`/`#uuid` are pre-registered by every fresh
+`Runtime`, not special-cased in the reader itself; an unregistered tag
+is a read error. Register more with `register-data-reader!`:
+
+```clojure
+(register-data-reader! 'upper 'String.upcase)
+#upper "hi"   ;;=> "HI"
+```
+
+`dotted-name` is resolved through the exact same `Logos.Interop.Allowlist`
+`import` already uses ([section 8](#8-interop-import)) -- a registered
+reader is always a plain, embedder-controlled Elixir function, never an
+arbitrary Logos closure. **Known limitation, the same one mid-sequence
+`(ns ...)`/`(in-ns ...)` already has**: `Logos.eval_string_sequence/3`
+reads every top-level form in a source string up front, before
+evaluating any of them -- so a `register-data-reader!` call and a use of
+that same new tag can't appear in the *same* top-level source string
+(script file); register it in one `eval_string`/`eval_string_sequence`
+call (or a `require`d file, loaded separately) before a *later* one
+uses the tag.
+
+`#inst`/`#uuid` validate their string argument (real Elixir
+`DateTime.from_iso8601/1` for `#inst`, a standard 8-4-4-4-12 hex-digit
+shape for `#uuid`) but return it **unchanged**, as a plain Logos string
+-- not a dedicated date/UUID value type. One direct, deliberate
+consequence: unlike Clojure's own `#inst`/`#uuid` (which round-trip
+through `pr`/`read` back to themselves), these two print back as
+ordinary quoted strings, not `#inst "..."`/`#uuid "..."` -- a documented
+exception to `Logos.Printer`'s usual round-trip guarantee, specific to
+these two tags.
+
+Reader conditionals (`#?(:clj ...)`) are not supported -- Logos has
+exactly one target platform (itself), so the entire premise (selecting
+code per platform) doesn't apply.
 
 ### 1.3 Namespace-qualified symbols
 
@@ -660,6 +706,7 @@ symbol-resolution path as everything else.
 | `get` `assoc` `dissoc` | `logos.map` primitives; `assoc`/`dissoc` are variadic (`(assoc m k v k2 v2 ...)`, `(dissoc m k1 k2 ...)`); `nil` treated as `{}` |
 | `throw` | see [section 4](#4-throw-catch-finally) |
 | `intern-var!` `in-ns` `require` `use` `import` | namespace/Var machinery |
+| `register-data-reader!` | `(register-data-reader! tag dotted-name)` -- registers a `#tag value` reader, resolved through the same allowlist `import` uses; see 1.2 |
 | `set-macro!` `macro?` | macro-flag machinery; `macro?` walks the full refer chain, see 6.1 |
 | `with-meta` | `(with-meta sym meta)` -- returns a copy of symbol `sym` with new metadata |
 | `var-doc` | `(var-doc 'name)` -- backs `doc`, returns a Var's `:doc` metadata |

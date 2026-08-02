@@ -4,8 +4,8 @@
 ; literals, character literals, ratio literals, var-quote, anonymous-fn
 ; sugar, real metadata attachment (`meta_sugar`/`^` is already present in
 ; the fixture grammar, but the fixture's own actions don't build real
-; metadata out of it the way `Logos.Reader.Actions` does), and `#_`
-; datum comments.
+; metadata out of it the way `Logos.Reader.Actions` does), `#_` datum
+; comments, and general `#tag value` tagged literals.
 ;
 ; This file is *pure syntax* -- it only says what parses. What each parsed
 ; shape turns into is entirely `Logos.Reader.Actions`'s job (pure
@@ -27,6 +27,12 @@ HASH_LBRACE     := "#{"
 HASH_LPAREN     := "#("
 HASH_UNDERSCORE := "#_"
 HASH_QUOTE      := "#'"
+; Bare `#`, for a general `#tag form` tagged literal (see `tagged_literal`
+; below) -- always loses the maximal-munch tie against the four 2-character
+; `#`-prefixed tokens above for their own specific second character
+; (`{`/`(`/`_`/`'`), so this only ever wins for anything else starting
+; with `#`, e.g. `#inst`/`#uuid`/`#my/tag`.
+HASH            := "#"
 QUOTE           := "'"
 BACKTICK        := "`"
 TILDE_AT        := "~@"
@@ -139,7 +145,7 @@ TRIVIA  := (SPACE | COMMENT)*
 
 ; ---- rules ------------------------------------------------------------------
 
-form := datum_comment | set | anon_fn_sugar | list | vector | map | reader_macro | atom
+form := datum_comment | set | anon_fn_sugar | list | vector | map | reader_macro | tagged_literal | atom
 
 list   := LPAREN form* RPAREN
 vector := LBRACKET form* RBRACKET
@@ -173,5 +179,16 @@ unquote_splice_sugar  := TILDE_AT form
 unquote_sugar         := TILDE form
 var_quote_sugar       := HASH_QUOTE form
 meta_sugar            := CARET meta:form target:form
+
+; `#tag value` -- a general, extensible tagged literal (`#inst "..."`,
+; `#uuid "..."`, or any tag an embedder has registered via
+; `register-data-reader!`). Its own top-level `form` alternative (not
+; folded into `reader_macro`, despite the superficial "one prefix, one
+; wrapped form" resemblance to `var_quote_sugar`/`quote_sugar`/etc.)
+; because, unlike those, it captures its own prefix *text* (`tag`, a
+; variable `SYMBOL`, not a fixed token) rather than just consuming a
+; fixed delimiter -- see `Logos.Reader.Actions`'s `handle_rule/3` for the
+; actual read-time resolution against `Logos.Runtime`'s registry.
+tagged_literal := HASH tag:SYMBOL value:form
 
 atom := SYMBOL | KEYWORD | STRING | NUMBER | CHAR

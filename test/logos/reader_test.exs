@@ -217,4 +217,95 @@ defmodule Logos.ReaderTest do
   test "read_all handles leading/trailing whitespace and comments" do
     assert Reader.read_all("\n  1 2 \n ; trailing\n") == {:ok, [1, 2]}
   end
+
+  # ---- tagged literals (#tag value) ------------------------------------------
+  # Resolved at READ time against Logos.Runtime's :data_readers registry
+  # (Logos.Runtime.new/1 pre-seeds "inst"/"uuid") -- see
+  # Logos.Reader.Actions's handle_rule(:tagged_literal, ...).
+
+  describe "tagged literals" do
+    test "#inst reads a valid RFC3339 instant as a plain string, unchanged" do
+      runtime = Logos.new_runtime()
+
+      assert Reader.read(~S[#inst "2020-01-01T00:00:00Z"], runtime) ==
+               {:ok, "2020-01-01T00:00:00Z"}
+    end
+
+    test "#uuid reads a valid UUID as a plain string, unchanged" do
+      runtime = Logos.new_runtime()
+
+      assert Reader.read(~S[#uuid "550e8400-e29b-41d4-a716-446655440000"], runtime) ==
+               {:ok, "550e8400-e29b-41d4-a716-446655440000"}
+    end
+
+    test "a malformed #inst is a read error, not a silently-accepted string" do
+      runtime = Logos.new_runtime()
+      assert {:error, %Ichor.Error{}} = Reader.read(~S[#inst "not-a-date"], runtime)
+    end
+
+    test "a malformed #uuid is a read error" do
+      runtime = Logos.new_runtime()
+      assert {:error, %Ichor.Error{}} = Reader.read(~S[#uuid "not-a-uuid"], runtime)
+    end
+
+    test "an unregistered tag is a clear read error" do
+      runtime = Logos.new_runtime()
+      assert {:error, %Ichor.Error{message: message}} = Reader.read(~S[#nope "x"], runtime)
+      assert message =~ "no data reader registered"
+    end
+
+    test "reading a tagged literal with no Runtime in scope is a clear error, not a crash" do
+      assert {:error, %Ichor.Error{message: message}} =
+               Reader.read(~S[#inst "2020-01-01T00:00:00Z"])
+
+      assert message =~ "no Runtime in scope"
+    end
+
+    test "resolution happens at READ time -- quote still yields the resolved value" do
+      runtime = Logos.new_runtime()
+
+      assert {:ok, "2020-01-01T00:00:00Z", _env} =
+               Logos.eval_string(~S['#inst "2020-01-01T00:00:00Z"], runtime)
+    end
+
+    test "these two tags are a deliberate, documented round-trip exception: they print back as plain strings, not #inst/#uuid" do
+      runtime = Logos.new_runtime()
+      {:ok, value} = Reader.read(~S[#inst "2020-01-01T00:00:00Z"], runtime)
+      assert Logos.Printer.print(value) == ~S["2020-01-01T00:00:00Z"]
+    end
+
+    test "register-data-reader! teaches the reader a new tag, resolved through the same allowlist import uses" do
+      runtime = Logos.new_runtime()
+
+      {:ok, _, _} =
+        Logos.eval_string_sequence(
+          "(register-data-reader! (quote upper) (quote String.upcase))",
+          runtime
+        )
+
+      assert Reader.read(~S[#upper "hello"], runtime) == {:ok, "HELLO"}
+    end
+
+    test "register-data-reader! against a non-allowlisted name fails clearly" do
+      runtime = Logos.new_runtime()
+
+      assert {:error, {:not_allowlisted, "Not.Allowlisted"}} =
+               Logos.eval_string(
+                 "(register-data-reader! (quote nope) (quote Not.Allowlisted))",
+                 runtime
+               )
+    end
+
+    test "a namespaced tag (#my/tag) resolves by its full ns/name text" do
+      runtime = Logos.new_runtime()
+
+      {:ok, _, _} =
+        Logos.eval_string_sequence(
+          "(register-data-reader! (quote my/tag) (quote String.reverse))",
+          runtime
+        )
+
+      assert Reader.read(~S[#my/tag "abc"], runtime) == {:ok, "cba"}
+    end
+  end
 end

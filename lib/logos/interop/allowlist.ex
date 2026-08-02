@@ -12,7 +12,11 @@ defmodule Logos.Interop.Allowlist do
   `Logos.Runtime.new/1` opts, which is not yet implemented). Populating it
   further is not a current priority; what's here exists only so
   `import`/`Logos.Primitives.apply/3`'s `"import"` clause has something
-  real to exercise in tests.
+  real to exercise in tests -- except the two `Logos.DataReaders` entries,
+  which are load-bearing: `register-data-reader!` (`Logos.Primitives`)
+  resolves *any* new tagged-literal reader through this same allowlist,
+  so `#inst`/`#uuid`'s own default readers (`Logos.Runtime.new/1`) have
+  to be reachable here too, not called directly.
 
   Entries are keyed by the exact dotted text a Logos symbol would spell
   (`"String.upcase"`, matching how `Logos.Symbol.parse/1` reads
@@ -33,7 +37,9 @@ defmodule Logos.Interop.Allowlist do
     "String.trim" => {String, :trim},
     "String.length" => {String, :length},
     "String.reverse" => {String, :reverse},
-    "erlang.system_time" => {:erlang, :system_time}
+    "erlang.system_time" => {:erlang, :system_time},
+    "Logos.DataReaders.inst" => {Logos.DataReaders, :inst},
+    "Logos.DataReaders.uuid" => {Logos.DataReaders, :uuid}
   }
 
   @doc "Looks up `dotted_name` (e.g. `\"String.upcase\"`) in the allowlist."

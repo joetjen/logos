@@ -65,7 +65,7 @@ defmodule Logos.Primitives do
   @core_primitive_names ~w(
     + - * / quot rem = < > <= >= first rest cons list vector to-list
     apply str keyword symbol throw
-    intern-var! in-ns require use import set-macro! macro? gensym
+    intern-var! in-ns require use import register-data-reader! set-macro! macro? gensym
     with-meta var-doc string? meta type-of
     push-thread-binding! pop-thread-binding!
     record current-ns
@@ -378,6 +378,31 @@ defmodule Logos.Primitives do
 
   defp apply_primitive("import", args, _runtime),
     do: raise(Logos.EvalError, reason: {:invalid_args, "import", args})
+
+  # `register-data-reader!` -- lets Logos code teach the reader a new
+  # `#tag value` tag, always resolved through `Logos.Interop.Allowlist`
+  # first (`dotted-name` is exactly the same kind of argument `import`
+  # already takes) -- never an arbitrary Logos closure, so a tagged-
+  # literal reader stays a plain, embedder-controlled Elixir function;
+  # see `Logos.Reader.Actions`'s `handle_rule(:tagged_literal, ...)`, the
+  # actual read-time caller. `tag` accepts a symbol (bare `'inst` or
+  # namespaced `'my/tag`, matching `#inst`/`#my/tag` source syntax) or a
+  # plain string, the same flexibility `keyword`/`symbol` already give.
+  defp apply_primitive("register-data-reader!", [tag, %Symbol{ns: nil, name: dotted}], runtime)
+       when is_binary(tag) or is_struct(tag, Symbol) do
+    case Interop.Allowlist.lookup(dotted) do
+      {:ok, {mod, fun}} ->
+        tag_text = data_reader_tag_text(tag)
+        Logos.Runtime.register_data_reader!(runtime, tag_text, {mod, fun})
+        tag_text
+
+      :error ->
+        raise Logos.EvalError, reason: {:not_allowlisted, dotted}
+    end
+  end
+
+  defp apply_primitive("register-data-reader!", args, _runtime),
+    do: raise(Logos.EvalError, reason: {:invalid_args, "register-data-reader!", args})
 
   defp apply_primitive("set-macro!", [%Symbol{} = sym, flag], runtime) do
     {ns, name} = symbol_location(sym, runtime)
@@ -1030,6 +1055,14 @@ defmodule Logos.Primitives do
     current = Logos.Runtime.current_ns(runtime)
     {Namespace.resolve_alias(runtime, current, alias_or_ns), name}
   end
+
+  # `register-data-reader!`'s own tag-text normalization -- a symbol
+  # (bare or namespaced) or a plain string both collapse to the same
+  # registry key `Logos.Reader.Actions`'s `handle_rule(:tagged_literal,
+  # ...)` looks up by (`Symbol.to_string/1`'s own text, e.g. `"inst"`/
+  # `"my/tag"`).
+  defp data_reader_tag_text(%Symbol{} = sym), do: Symbol.to_string(sym)
+  defp data_reader_tag_text(text) when is_binary(text), do: text
 
   # ---- type-of helper -------------------------------------------------------------
   # The one place that knows Logos.Value.t()'s actual Elixir

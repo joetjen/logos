@@ -61,18 +61,21 @@ defmodule Logos.Reader do
   Reads exactly the first top-level form out of `source`; anything after
   it is ignored, matching `read-string` semantics.
 
-  `runtime` (optional, defaults to `nil`) is consulted **only** for
-  syntax-quote auto-qualification -- it tells `Logos.Reader.Actions`
-  what the "current defining namespace" is when desugaring a `` ` ``
-  anywhere in the form. Passing `nil` (the default, and what every
-  `runtime`-unaware caller/test still gets) simply skips auto-
-  qualification -- a bare symbol inside a syntax-quote is left
-  unqualified rather than erroring, so `read/1` without a `Runtime`
-  keeps working for every case that doesn't use syntax-quote.
+  `runtime` (optional, defaults to `nil`) serves two purposes: syntax-
+  quote auto-qualification (it tells `Logos.Reader.Actions` what the
+  "current defining namespace" is when desugaring a `` ` `` anywhere in
+  the form), and resolving a `#tag value` tagged literal against
+  `Logos.Runtime`'s `:data_readers` registry (`handle_rule(:tagged_literal,
+  ...)`). Passing `nil` (the default, and what every `runtime`-unaware
+  caller/test still gets) skips auto-qualification gracefully (a bare
+  symbol inside a syntax-quote is left unqualified rather than erroring)
+  but makes reading a tagged literal a hard error -- there's no sensible
+  degraded fallback for "resolve this tag" the way there is for
+  "qualify this symbol."
   """
   @spec read(String.t(), Logos.Runtime.t() | nil) :: {:ok, Logos.Form.t()} | {:error, term()}
   def read(source, runtime \\ nil) when is_binary(source) do
-    with {:ok, forms, _ctx} <- Generated.run_sequence(source, nil) do
+    with {:ok, forms, _ctx} <- Generated.run_sequence(source, runtime) do
       case Enum.reject(forms, &(&1 == Actions.discard())) do
         [first | _rest] -> {:ok, Actions.desugar_syntax_quote(first, runtime)}
         [] -> {:error, "no form found in input"}
@@ -84,7 +87,7 @@ defmodule Logos.Reader do
   @spec read_all(String.t(), Logos.Runtime.t() | nil) ::
           {:ok, [Logos.Form.t()]} | {:error, term()}
   def read_all(source, runtime \\ nil) when is_binary(source) do
-    with {:ok, forms, _ctx} <- Generated.run_sequence(source, nil) do
+    with {:ok, forms, _ctx} <- Generated.run_sequence(source, runtime) do
       forms = Enum.reject(forms, &(&1 == Actions.discard()))
       {:ok, Enum.map(forms, &Actions.desugar_syntax_quote(&1, runtime))}
     end

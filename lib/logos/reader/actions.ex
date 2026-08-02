@@ -84,6 +84,18 @@ defmodule Logos.Reader.Actions do
       metadata, so it's represented instead as a
       `(with-meta target meta)` placeholder list, to be given real
       meaning once collections grow metadata support.
+
+    * `tagged_literal` (`#tag value`) is the one rule that genuinely
+      needs `Logos.Runtime` state (`ctx`) during the parse itself, not
+      just at the later `desugar_syntax_quote/2` pass -- resolving a tag
+      against `Logos.Runtime`'s `:data_readers` registry has to happen at
+      *read* time so `'#inst "..."` still yields the resolved value
+      under `quote`. The registered reader is always a plain Elixir
+      function reached through `Logos.Interop.Allowlist` (never an
+      arbitrary Logos closure), called directly via `Kernel.apply/3` --
+      this is still "pure reification calling a plain Elixir helper," the
+      same category of thing `Char.parse/1` already is, not a new
+      dependency on the evaluator.
   """
 
   alias Logos.{Char, Keyword, Ratio, Symbol, Vector}
@@ -203,6 +215,56 @@ defmodule Logos.Reader.Actions do
     with {:ok, meta_value, ctx} <- meta_cap.eval.(ctx),
          {:ok, target_value, ctx} <- target_cap.eval.(ctx) do
       {:ok, attach_meta(target_value, meta_value), ctx}
+    end
+  end
+
+  # `#tag value` -- resolves at READ time (not eval time), so `'#inst
+  # "..."` still yields the resolved value under `quote`, matching every
+  # other literal (see `priv/grammar/logos.aether`'s own comment on this
+  # rule). `ctx` here is the `Logos.Runtime.t()` `Logos.Reader.read/2`/
+  # `read_all/2` were called with (`nil` if the caller didn't pass one).
+  # The registered `{module, function}` is called *directly* via
+  # `Kernel.apply/3`, no `Logos.Eval` involved at all: a registered
+  # reader is always a plain Elixir function reached through
+  # `Logos.Interop.Allowlist` (the same chokepoint `import` uses), never
+  # an arbitrary Logos closure -- this stays "pure reification calling a
+  # plain Elixir helper" in the same sense `Char.parse/1` already is from
+  # `handle_token` above, not a new kind of coupling to the evaluator.
+  def handle_rule(:tagged_literal, %{tag: tag_cap, value: value_cap}, ctx) do
+    with {:ok, tag, ctx} <- tag_cap.eval.(ctx),
+         {:ok, value, ctx} <- value_cap.eval.(ctx) do
+      resolve_tagged_literal(tag, value, ctx)
+    end
+  end
+
+  defp resolve_tagged_literal(%Symbol{} = tag, _value, nil) do
+    {:error,
+     Ichor.Error.new(
+       message:
+         "##{Symbol.to_string(tag)}: tagged literal read with no Runtime in scope -- pass one to Logos.Reader.read/2 or read_all/2",
+       stage: :action
+     )}
+  end
+
+  defp resolve_tagged_literal(%Symbol{} = tag, value, %Logos.Runtime{} = runtime) do
+    tag_text = Symbol.to_string(tag)
+
+    case Logos.Runtime.data_reader(runtime, tag_text) do
+      {:ok, {mod, fun}} ->
+        try do
+          {:ok, Kernel.apply(mod, fun, [value]), runtime}
+        rescue
+          e ->
+            {:error,
+             Ichor.Error.new(
+               message: "##{tag_text} tagged literal failed: #{Exception.message(e)}",
+               stage: :action
+             )}
+        end
+
+      :error ->
+        {:error,
+         Ichor.Error.new(message: "no data reader registered for ##{tag_text}", stage: :action)}
     end
   end
 

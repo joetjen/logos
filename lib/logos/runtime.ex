@@ -64,6 +64,15 @@ defmodule Logos.Runtime do
       of directory strings `require`/`use` search on disk for a namespace
       not already in-memory. See `load_paths/1` and `Logos.Primitives`'
       `load_ns!/2`.
+    * `:data_readers` -> a `%{tag_text => {module, function}}` map backing
+      `#tag value` tagged literals (`priv/grammar/logos.aether`'s
+      `tagged_literal` rule, resolved at read time by
+      `Logos.Reader.Actions`'s `handle_rule(:tagged_literal, ...)`).
+      Seeded at `new/1` with `"inst"`/`"uuid"` (`Logos.DataReaders`);
+      `register_data_reader!/3` (the `register-data-reader!` primitive's
+      backing call) adds more, always resolved through
+      `Logos.Interop.Allowlist` first -- never an arbitrary Logos closure,
+      the same sandboxing chokepoint `import` uses.
 
   Granular per-var/per-ns rows (rather than one giant nested map for the
   whole registry) are deliberate: two concurrent `def`s into two
@@ -112,6 +121,15 @@ defmodule Logos.Runtime do
     :ets.insert(table, {:gensym_counter, 0})
     :ets.insert(table, {:argv, []})
     :ets.insert(table, {:load_paths, Keyword.get(opts, :load_paths, [])})
+
+    :ets.insert(
+      table,
+      {:data_readers,
+       %{
+         "inst" => {Logos.DataReaders, :inst},
+         "uuid" => {Logos.DataReaders, :uuid}
+       }}
+    )
 
     Namespace.ensure!(runtime, "logos.core")
     Logos.Primitives.install!(runtime)
@@ -224,6 +242,22 @@ defmodule Logos.Runtime do
   def next_gensym(%__MODULE__{table: table}, prefix \\ "G__") do
     n = :ets.update_counter(table, :gensym_counter, 1, {:gensym_counter, 0})
     prefix <> Integer.to_string(n)
+  end
+
+  @doc "The `{module, function}` registered for `tag_text` (e.g. `\"inst\"`, `\"my/tag\"`), or `:error` if nothing is registered under that tag -- see moduledoc's `:data_readers` row."
+  @spec data_reader(t(), String.t()) :: {:ok, {module(), atom()}} | :error
+  def data_reader(%__MODULE__{table: table}, tag_text) when is_binary(tag_text) do
+    [{:data_readers, readers}] = :ets.lookup(table, :data_readers)
+    Map.fetch(readers, tag_text)
+  end
+
+  @doc "Registers `{module, function}` under `tag_text` for `#tag_text value` tagged literals -- the `register-data-reader!` primitive's backing call. Overwrites any existing registration for the same tag."
+  @spec register_data_reader!(t(), String.t(), {module(), atom()}) :: :ok
+  def register_data_reader!(%__MODULE__{table: table}, tag_text, {mod, fun})
+      when is_binary(tag_text) and is_atom(mod) and is_atom(fun) do
+    [{:data_readers, readers}] = :ets.lookup(table, :data_readers)
+    :ets.insert(table, {:data_readers, Map.put(readers, tag_text, {mod, fun})})
+    :ok
   end
 
   # ---- low-level accessors (used by Namespace/Var only) ----------------------

@@ -26,6 +26,8 @@ for narrative walkthroughs see [TUTORIAL.md](TUTORIAL.md).
 | `#_form` | datum comment (discard one form) |
 | `; text` | line comment |
 | `#(...)` | anon-fn sugar -- `#(+ % 1)` => `(fn [%1] (+ %1 1))`; `%1`/`%2`/... for multiple args |
+| `#inst "..."` `#uuid "..."` | tagged literal, resolved at READ time; validated, returned as a plain string -- see LOGOS.md 1.2 |
+| `#tag value` | general tagged literal -- `register-data-reader!` teaches the reader a new one, see LOGOS.md 1.2 |
 
 ## Special forms (the only six)
 

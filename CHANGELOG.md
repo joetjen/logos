@@ -9,6 +9,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Reader tagged literals** (`#tag value`), `ROADMAP.md`'s second Tier
+  3 item. Jan chose the full, genuinely extensible route (a per-
+  `Runtime` registry, `#inst`/`#uuid` as two pre-installed entries in
+  it rather than special-cased, plus a new `register-data-reader!`
+  primitive) over a narrower built-in-only version, matching real
+  Clojure's own `*data-readers*` design. Reader conditionals
+  (`#?(:clj ...)`) are explicitly **not** included -- `ROADMAP.md`'s
+  own reasoning (Logos has exactly one target platform, itself) still
+  holds, nothing found while researching this changed that.
+
+  Resolved at **read time**, not eval time -- `` '#inst "..." `` still
+  yields the resolved value under `quote`, matching every other
+  literal, not sugar for a deferred function call. This is the one
+  place `priv/grammar/logos.aether`/`Logos.Reader.Actions` genuinely
+  needs `Logos.Runtime` state *during* the parse itself (not just at
+  the later syntax-quote desugaring pass, which is why `runtime` was
+  already an optional parameter): `Logos.Reader.read/2`/`read_all/2`
+  now thread it through as `Ichor.Actions`' own `context`, previously
+  hardcoded to `nil`. A registered reader is always a plain Elixir
+  function reached through `Logos.Interop.Allowlist` -- the exact same
+  sandboxing chokepoint `import` already uses -- **never an arbitrary
+  Logos closure**, so `handle_rule(:tagged_literal, ...)` calls it
+  directly via `Kernel.apply/3` with no `Logos.Eval` involved at all,
+  keeping `Logos.Reader.Actions`'s own "pure reification only"
+  architectural rule intact (this is the same category of thing
+  `Char.parse/1` already is, not a new coupling to the evaluator). A
+  deliberate narrowing from the literal "Logos code can register its
+  own tags" framing this item started from -- flagged and confirmed
+  before writing any code.
+
+  `#inst`/`#uuid` (`Logos.DataReaders`, two new `Logos.Interop.Allowlist`
+  entries) validate their string argument (real `DateTime.from_iso8601/1`
+  for `#inst`, an 8-4-4-4-12 hex-digit shape for `#uuid`) but return it
+  **unchanged**, as a plain Logos string -- deliberately no new
+  `Logos.Instant`/`Logos.Uuid` value type (a separate,
+  `Logos.Record`-scale design question this item didn't ask for). Direct,
+  documented consequence: unlike Clojure's own `#inst`/`#uuid`, these two
+  don't round-trip through `Logos.Printer.print/1`/`Logos.Reader.read/1`
+  back to `#inst "..."`/`#uuid "..."` -- they print as ordinary quoted
+  strings, since a plain string carries no record of which tag (if any)
+  produced it. Also found and documented (not a bug, an inherent
+  consequence of `Logos.eval_string_sequence/3`'s already-existing
+  "read every top-level form up front, before evaluating any of them"
+  behavior, the same one mid-sequence `(ns ...)`/`(in-ns ...)` already
+  has): `register-data-reader!` and a use of that same new tag can't
+  appear in the same top-level source string/script file -- only in a
+  later, separate `eval_string`/`eval_string_sequence` call.
+
+  Found and fixed a real bug in `mix logos.format`/`Logos.Format` while
+  building this: the new bare `#` prefix token needed teaching the
+  formatter "no space before the next token" (`#inst`, not `# inst`).
+  The first attempt did this with a blind text check ("does the
+  accumulated output so far end in `#`?"), which also matched an
+  ordinary symbol whose own text just happens to end in `#` (auto-
+  gensym syntax, `g#`/`x#`) -- gluing it to whatever token followed with
+  no space. Caught by re-running the formatter against real stdlib
+  source (`priv/stdlib/core.logos`'s `or` macro, `priv/stdlib/test.logos`'s
+  `assert`/`assert-throws`) and diffing the result before trusting it,
+  not just a synthetic test -- corrupted output had already merged
+  `g# g#`/`v# v#`/`a# e#` into single unparseable tokens on disk (never
+  committed; restored from git before re-fixing). Fixed by wiring up
+  `Logos.Format`'s already-threaded-but-unused `suppress`/`@prefix`
+  machinery (tracking the *actual previous token's identity*, not a
+  guess from accumulated text) instead of extending the text heuristic
+  further -- see `test/logos/format_test.exs`'s new regression tests.
 - **`try`/`catch` now catches primitive-level failures** (division by
   zero, an unbound symbol, a wrong-arity call, ...), not only an
   explicit `(throw ...)` -- `ROADMAP.md`'s first Tier 3 item, previously
