@@ -82,7 +82,7 @@ defmodule Logos.MixProject do
       # to exist wherever Logos code actually runs, including inside a
       # `mix release` build of an embedding application. Zero
       # dependencies of its own.
-      {:decimal, "~> 2.0"}
+      {:decimal, "~> 3.1"}
     ]
   end
 
