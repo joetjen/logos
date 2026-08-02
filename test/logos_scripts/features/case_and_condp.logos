@@ -1,0 +1,20 @@
+;; Feature test: case (literal, unevaluated test values, real Clojure
+;; semantics) and condp (evaluated test values, arbitrary predicate).
+
+(require '[logos.test :refer [:all]])
+(deftest case-basics
+  (do
+    (assert= (case 2 1 :one 2 :two 3 :three) :two)
+    (assert= (case 5 1 :one 2 :two :other) :other)
+    (assert-throws :no-matching-clause (case 5 1 :one 2 :two))))
+(deftest case-multi-value-test
+  (do
+    (assert= (case (+ 1 1) (1 2 3) :small :big) :small)
+    (assert= (case 10 (1 2 3) :small :big) :big)))
+(deftest condp-basics
+  (do
+    (assert= (condp = 2 1 :one 2 :two 3 :three) :two)
+    (assert= (condp > 5 10 :lt10 3 :lt3 :other) :lt10)
+    (assert= (condp = 5 1 :one 2 :two :other) :other)
+    (assert-throws :no-matching-clause (condp = 5 1 :one 2 :two))))
+(run-tests)

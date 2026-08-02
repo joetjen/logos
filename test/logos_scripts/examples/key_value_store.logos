@@ -1,0 +1,56 @@
+;; A small in-memory key-value store: a single atom holding a map,
+;; mutated through swap!/reset! -- exercises atoms, maps, and ordinary
+;; function composition together in one realistic-shaped program (the
+;; sort of small stateful service a host application might actually
+;; embed Logos to script, per the README's "Why embed a Lisp" pitch).
+
+(require '[logos.test :refer [:all]])
+(defn kv-new
+  "A fresh, empty key-value store."
+  []
+  (atom {}))
+(defn kv-put!
+  "Stores `v` under `k`, returning `v`."
+  [store k v]
+  (do (swap! store (fn [m] (assoc m k v))) v))
+(defn kv-get
+  "The value stored under `k`, or `nil` if absent."
+  [store k]
+  (get (deref store) k))
+(defn kv-delete!
+  "Removes `k` from the store."
+  [store k]
+  (swap! store (fn [m] (dissoc m k))))
+(defn kv-snapshot
+  "The store's entire current contents as a plain map."
+  [store]
+  (deref store))
+(deftest kv-store-basic-put-get
+  (do
+    (def store (kv-new))
+    (assert= (kv-get store :name) nil)
+    (kv-put! store :name "ada")
+    (kv-put! store :age 32)
+    (assert= (kv-get store :name) "ada")
+    (assert= (kv-get store :age) 32)
+    (assert= (kv-snapshot store) {:name "ada" :age 32})))
+(deftest kv-store-overwrite-and-delete
+  (do
+    (def store (kv-new))
+    (kv-put! store :age 32)
+    (kv-put! store :age 33)
+    (assert= (kv-get store :age) 33)
+    (kv-delete! store :age)
+    (assert= (kv-get store :age) nil)
+    (assert= (kv-snapshot store) {})))
+(deftest kv-store-concurrent-safe-by-construction
+  ;; Every mutation funnels through the atom's own owning process (see
+  ;; concurrency.logos in priv/stdlib), so two "requests" racing to
+  ;; update the store never lose a write the way a naive
+  ;; read-modify-write against a shared map would.
+  (do
+    (def store (kv-new))
+    (def updater (spawn (fn [] (kv-put! store :from-another-process true))))
+    (assert= (receive [msg] (true msg) (after 50 :no-message)) :no-message)
+    (assert= (kv-get store :from-another-process) true)))
+(run-tests)

@@ -1,0 +1,46 @@
+;; Feature test: lists, maps, and the logos.seq functions
+;; (map/filter/reduce/take/drop/reverse/count/empty?), plus logos.map's
+;; get/assoc/dissoc and keyword-as-function lookup.
+
+(require '[logos.test :refer [:all]])
+(deftest list-primitives
+  (assert= (first (list 1 2 3)) 1)
+  (assert= (rest (list 1 2 3)) (list 2 3))
+  (assert= (cons 0 (list 1 2)) (list 0 1 2)))
+(deftest count-and-empty
+  (assert= (count (list 1 2 3 4)) 4)
+  (assert= (count ()) 0)
+  (assert (empty? ()))
+  (assert (empty? nil))
+  (assert= (empty? (list 1)) false))
+(deftest reverse-take-drop
+  (assert= (reverse (list 1 2 3)) (list 3 2 1))
+  (assert= (take 2 (list 1 2 3 4)) (list 1 2))
+  (assert= (drop 2 (list 1 2 3 4)) (list 3 4))
+  (assert= (take 0 (list 1 2 3)) ())
+  (assert= (drop 10 (list 1 2 3)) ()))
+(deftest map-filter-reduce
+  (assert= (map (fn [x] (* x x)) (list 1 2 3)) (list 1 4 9))
+  (assert= (filter (fn [x] (> x 2)) (list 1 2 3 4)) (list 3 4))
+  (assert= (reduce (fn [acc x] (+ acc x)) 0 (list 1 2 3 4)) 10)
+  (assert= (reduce (fn [acc x] (+ acc x)) (list 1 2 3 4)) 10)
+  (assert= (reduce (fn [acc x] (+ acc x)) (list 7)) 7))
+(deftest map-get-assoc-dissoc
+  (assert= (get {:a 1 :b 2} :a) 1)
+  (assert= (get {:a 1} :missing) nil)
+  (assert= (get {:a 1} :missing :default) :default)
+  (assert= (:a {:a 1}) 1)
+  (assert= (:missing {:a 1} :default) :default)
+  (assert= (assoc {:a 1} :b 2) {:a 1 :b 2})
+  (assert= (assoc {} :a 1 :b 2) {:a 1 :b 2})
+  (assert= (dissoc {:a 1 :b 2} :a) {:b 2}))
+(deftest seq-pipeline
+  ;; map/filter/reduce compose into a small realistic pipeline: sum of
+  ;; squares of the values greater than 1.
+  (assert=
+    (reduce
+      (fn [acc x] (+ acc x))
+      0
+      (map (fn [x] (* x x)) (filter (fn [x] (> x 1)) (list 1 2 3 4 5))))
+    (+ 4 9 16 25)))
+(run-tests)

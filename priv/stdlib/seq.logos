@@ -1,0 +1,682 @@
+;; priv/stdlib/seq.logos
+;;
+;; `logos.seq` -- collection-processing functions built entirely from
+;; `first`/`rest`/`cons`/`cond` plus the `to-list` primitive, the same
+;; pattern `logos.core` itself already uses throughout. Loaded into its
+;; own namespace, then referred into `logos.core` by `Logos.Stdlib.load!/1`
+;; -- see that module and `core.logos`'s header comment for why that makes
+;; every function below usable unqualified from any namespace, exactly
+;; like `first`/`rest`/`let`/`defn`.
+;;
+;; Every function below that takes a `coll` argument accepts a list,
+;; vector, map, set, or `nil` -- `to-list` (a primitive) coerces it to a
+;; plain list first, the same way `into`'s own `from` argument already
+;; did before this file's other functions caught up. `nil` and `()` are
+;; both treated as empty (they are NOT `=` to each other -- `()` reifies
+;; as a real, zero-length Logos list, `nil` is Logos's own nil value --
+;; so `empty?` checks the coerced list against `()`, not `coll` itself,
+;; which is what makes `[]`/`{}`/`#{}` count as empty too). Every
+;; function's OWN result stays a plain list regardless of `coll`'s input
+;; shape -- matching real Clojure exactly: `(map f a-vector)` in real
+;; Clojure returns a lazy seq, never a vector, so returning a list here
+;; is not a divergence. `to-list` on an already-a-list value is an O(1)
+;; pattern match in `Logos.Primitives` (returns the same list reference,
+;; no rebuild), so re-coercing on every recursive step below costs
+;; nothing real -- deliberately not worth threading an already-coerced
+;; list through a separate private worker for every function.
+;;
+;; **Behavior change**: `(empty? 5)` (or `count`/`map`/... on a
+;; non-collection) used to fall through to `false`/an error-free no-op;
+;; now it errors via `to-list`'s own `{:invalid_args, ...}`, matching
+;; real Clojure (`(empty? 5)` throws there too) -- more correct, not a
+;; regression, but a real, observable difference for existing callers.
+;;
+;; **No `^:private` on any helper here** (e.g. `reverse-onto`), even
+;; though they're implementation details of a public function -- doing so
+;; would break that public function as soon as it's called from any
+;; namespace other than `logos.seq` itself (which is to say: always, in
+;; practice). See `core.logos`'s header comment for the full explanation
+;; of why this constraint exists.
+
+(defn empty?
+  "True if `coll` is empty -- `nil`, `()`, `[]`, `{}`, and `#{}` all
+  count."
+  [coll]
+  (= (to-list coll) ()))
+(defn count-onto
+  "Accumulates a running count of `items` onto `n` -- `count`'s own
+  worker, tail-recursive (unlike a direct `(+ 1 (count (rest items)))`
+  body, which would wrap its own recursive call and so never benefit
+  from Logos's TCO -- see `reverse-onto`'s own accumulator pattern
+  above, which this mirrors)."
+  [items n]
+  (cond
+    (empty? items) n
+    true (count-onto (rest items) (+ n 1))))
+(defn count
+  "The number of elements in `coll`."
+  [coll]
+  (count-onto (to-list coll) 0))
+;; ---- reverse ------------------------------------------------------------------
+
+(defn reverse-onto
+  "Accumulates `coll` onto `acc` in reverse order -- `reverse`'s own
+  worker. Public despite being an implementation detail; see this file's
+  header comment."
+  [coll acc]
+  (let [items (to-list coll)]
+    (cond
+      (empty? items) acc
+      true (reverse-onto (rest items) (cons (first items) acc)))))
+(defn reverse
+  "A new list with `coll`'s elements in reverse order."
+  [coll]
+  (reverse-onto coll ()))
+;; ---- take / drop --------------------------------------------------------------
+
+(defn take-onto
+  "`take`'s own worker -- tail-recursive, same accumulate-then-`reverse`
+  pattern as `reverse-onto`/`count-onto` above (a direct `(cons (first
+  items) (take ...))` body would wrap its own recursive call, losing
+  TCO)."
+  [n items acc]
+  (cond
+    (<= n 0) (reverse acc)
+    (empty? items) (reverse acc)
+    true (take-onto (- n 1) (rest items) (cons (first items) acc))))
+(defn take
+  "A list of the first `n` elements of `coll` (or all of them, if
+  `coll` has fewer than `n`)."
+  [n coll]
+  (take-onto n (to-list coll) ()))
+(defn drop
+  "A list of `coll` with its first `n` elements removed (or `()`, if
+  `coll` has fewer than `n`)."
+  [n coll]
+  (let [items (to-list coll)]
+    (cond
+      (<= n 0) items
+      (empty? items) ()
+      true (drop (- n 1) (rest items)))))
+;; ---- map / filter ---------------------------------------------------------------
+
+(defn map-onto
+  "`map`'s own worker -- tail-recursive, same accumulate-then-`reverse`
+  pattern as `take-onto`/`count-onto` above."
+  [f items acc]
+  (cond
+    (empty? items) (reverse acc)
+    true (map-onto f (rest items) (cons (f (first items)) acc))))
+(defn map
+  "A new list with `f` applied to every element of `coll`, in order."
+  [f coll]
+  (map-onto f (to-list coll) ()))
+(defn filter-onto
+  "`filter`'s own worker -- tail-recursive, same pattern."
+  [pred items acc]
+  (cond
+    (empty? items) (reverse acc)
+    (pred (first items)) (filter-onto pred (rest items) (cons (first items) acc))
+    true (filter-onto pred (rest items) acc)))
+(defn filter
+  "A new list of only `coll`'s elements for which `(pred element)` is
+  truthy, in order."
+  [pred coll]
+  (filter-onto pred (to-list coll) ()))
+;; ---- reduce ---------------------------------------------------------------------
+;; Real Clojure `reduce` semantics: `(reduce f coll)` seeds the
+;; accumulator with `coll`'s first element and reduces over the rest
+;; (calling `f` with no args on an empty `coll`, matching Clojure's own
+;; "no seed, no elements" behavior); `(reduce f init coll)` always starts
+;; from the given `init`, even against an empty `coll`. Multi-arity `fn`,
+;; not two `defn`s -- `defn`'s own sugar (see `core.logos`) only covers a
+;; single arity, the same reason `stdlib.lisp`'s original helpers used
+;; bare `def`+`fn` wherever multiple arities were needed.
+
+(def reduce
+  "Folds `f` (a 2-arg function) over `coll` left to right. 2-arity
+  `(reduce f coll)` seeds from `coll`'s first element (or calls `(f)`
+  with no seed and no elements); 3-arity `(reduce f init coll)` always
+  starts from the given `init`."
+  (fn
+    ([f coll]
+      (let [items (to-list coll)]
+        (cond
+          (empty? items) (f)
+          true (reduce f (first items) (rest items)))))
+    ([f init coll]
+      (let [items (to-list coll)]
+        (cond
+          (empty? items) init
+          true (reduce f (f init (first items)) (rest items)))))))
+;; ---- into -------------------------------------------------------------------
+;; `into`'s `from` argument was the first thing in this file to accept
+;; every collection shape (before the rest of the file caught up, see
+;; this file's own header comment) -- `to-list` (a primitive) coerces a
+;; vector/map/set/nil source to a list, a map's entries surfacing as
+;; 2-element LISTS (`(k v)`), not vectors, so `into`'s own map-target
+;; branch can destructure each pair with plain `first`/`rest`. `to`, the
+;; target, determines the shape of the RESULT via the `logos.core` type
+;; predicates -- unlike every other function in this file, which always
+;; returns a plain list regardless of input shape, `into`'s whole
+;; purpose is building a specific target shape: prepend onto a list
+;; (`nil` counts as an empty one, same as everywhere else
+;; `cons`/`first`/`rest` treat it), append onto a vector, union into a
+;; set, or `assoc` `(k v)` pairs into a map.
+
+(defn into
+  "Pours every element of `from` into `to`, in `to`'s own collection
+  shape. `from` may be a list, vector, map, or set (or `nil`); `to` must
+  be a list, vector, map, set, or `nil` (treated as `()`)."
+  [to from]
+  (cond
+    (or (nil? to) (list? to)) (reduce (fn [acc x] (cons x acc)) to (to-list from))
+    (vector? to) (list->vector (concat (to-list to) (to-list from)))
+    ;; `reduce conj`, not a `list->set (concat ...)` rebuild -- the
+    ;; latter would silently demote a sorted-set `to` into a plain set,
+    ;; losing both its order and comparator. `conj` (above) is already
+    ;; sorted-set-aware, so reusing it here keeps this branch correct
+    ;; for both shapes with no separate sorted-set-specific logic.
+    (set? to) (reduce conj to (to-list from))
+    (map? to)
+    (reduce (fn [acc pair] (assoc acc (first pair) (first (rest pair)))) to (to-list from))
+    true (throw :invalid-into-target (list :to to))))
+;; ---- nth / second / last --------------------------------------------------------
+;; Checks bounds against `(count items)` up front rather than recursing
+;; and decrementing `n` step by step -- a step-by-step version would
+;; only ever see how many steps were *left* at the point it ran out, not
+;; the original index the caller actually asked for, so an
+;; out-of-bounds throw/`not-found` would report the wrong number.
+
+(defn nth
+  "The element of `coll` at index `n` (0-based). 2-arity throws
+  `:index-out-of-bounds` if `n` is out of range; 3-arity returns
+  `not-found` instead."
+  ([coll n]
+    (let [items (to-list coll)]
+      (if (or (< n 0) (>= n (count items))) (throw :index-out-of-bounds n) (first (drop n items)))))
+  ([coll n not-found]
+    (let [items (to-list coll)]
+      (if (or (< n 0) (>= n (count items))) not-found (first (drop n items))))))
+(defn second
+  "The second element of `coll`, or `nil` if it has fewer than two."
+  [coll]
+  (nth coll 1 nil))
+(defn last
+  "The last element of `coll`, or `nil` if it's empty."
+  [coll]
+  (let [items (to-list coll)]
+    (cond
+      (empty? items) nil
+      (empty? (rest items)) (first items)
+      true (last (rest items)))))
+;; ---- some / every? ---------------------------------------------------------------
+
+(defn some
+  "The first truthy `(pred x)` result over `coll`'s elements, or `nil`
+  if none are truthy -- returns `pred`'s own return value (which may not
+  be `x` itself), matching real Clojure, not just whether one existed."
+  [pred coll]
+  (let [items (to-list coll)]
+    (cond
+      (empty? items) nil
+      true
+      (let [result (pred (first items))] (if result result (some pred (rest items)))))))
+(defn every?
+  "True if `(pred x)` is truthy for every element of `coll` (vacuously
+  true for an empty `coll`)."
+  [pred coll]
+  (let [items (to-list coll)]
+    (cond
+      (empty? items) true
+      (pred (first items)) (every? pred (rest items))
+      true false)))
+;; ---- distinct ---------------------------------------------------------------------
+;; O(n^2) worst case (a linear `some` scan of `seen` per element) -- the
+;; simple, obviously-correct choice for the list sizes Logos scripts
+;; realistically process, not the asymptotically best one; a faster
+;; version (backed by a set for O(1) membership) can replace this later
+;; without changing the public contract, same spirit as `reduce`'s own
+;; moduledoc note on `sort`/`sort-by` below.
+
+(defn distinct-onto
+  "`distinct`'s own worker: walks `items`, keeping each element the
+  first time it's seen (checked against `seen`, accumulated in reverse),
+  dropping every later duplicate."
+  [items seen]
+  (cond
+    (empty? items) (reverse seen)
+    (some (fn [x] (= x (first items))) seen) (distinct-onto (rest items) seen)
+    true (distinct-onto (rest items) (cons (first items) seen))))
+(defn distinct
+  "A new list of `coll`'s elements with duplicates removed -- first
+  occurrence kept, original order preserved."
+  [coll]
+  (distinct-onto (to-list coll) ()))
+;; ---- sort / sort-by ---------------------------------------------------------------
+;; Insertion sort -- O(n^2), same documented tradeoff as `distinct`
+;; above: simple and obviously correct for realistic script-sized
+;; collections, not the fastest possible.
+;;
+;; Ordered via the `compare` primitive (real Clojure's own general
+;; ordering: numbers, strings, chars, keywords/symbols,
+;; vectors/lists of comparables -- see `Logos.Primitives`' own comment on
+;; it), not `<=` -- `<=` stays strictly numeric (matching Clojure's own
+;; `<=`, which also throws on two strings), so `(sort ["b" "a"])` used to
+;; error here; now it sorts, matching real Clojure.
+
+(defn sort-insert
+  "Inserts `x` into already-sorted list `sorted`, keeping it sorted --
+  `sort`'s own worker."
+  [x sorted]
+  (cond
+    (empty? sorted) (list x)
+    (<= (compare x (first sorted)) 0) (cons x sorted)
+    true (cons (first sorted) (sort-insert x (rest sorted)))))
+(defn sort
+  "A new list of `coll`'s elements in ascending order, per `compare`."
+  [coll]
+  (reduce (fn [acc x] (sort-insert x acc)) () (to-list coll)))
+(defn sort-by-insert
+  "`sort-insert`'s `sort-by` counterpart -- compares `(keyfn x)` instead
+  of `x` itself."
+  [keyfn x sorted]
+  (cond
+    (empty? sorted) (list x)
+    (<= (compare (keyfn x) (keyfn (first sorted))) 0) (cons x sorted)
+    true (cons (first sorted) (sort-by-insert keyfn x (rest sorted)))))
+(defn sort-by
+  "Like `sort`, but compares `(keyfn x)` for each element instead of
+  `x` itself."
+  [keyfn coll]
+  (reduce (fn [acc x] (sort-by-insert keyfn x acc)) () (to-list coll)))
+;; ---- frequencies / group-by --------------------------------------------------------
+
+(defn frequencies
+  "A map of each distinct element of `coll` to the number of times it
+  appears."
+  [coll]
+  (reduce (fn [acc x] (assoc acc x (inc (get acc x 0)))) {} (to-list coll)))
+(defn group-by
+  "A map of `(f x)` to a vector of every `x` in `coll` for which `f`
+  produced that key, in original order -- real Clojure semantics
+  exactly, including the vector-shaped groups."
+  [f coll]
+  (reduce (fn [acc x] (assoc acc (f x) (conj (get acc (f x) []) x))) {} (to-list coll)))
+;; ---- range / repeat ---------------------------------------------------------------
+;; Eager and bounded -- unlike Clojure's own lazy, potentially-infinite
+;; `range`/`repeat`, both need every argument given upfront and neither
+;; can represent an unbounded sequence (Logos has no lazy-seq abstraction
+;; -- a real, deliberate scope trim, not an oversight).
+
+(defn range-onto
+  "`range`'s own worker -- tail-recursive, same accumulate-then-`reverse`
+  pattern as `take-onto`/`map-onto` above."
+  [start end step acc]
+  (cond
+    (and (pos? step) (>= start end)) (reverse acc)
+    (and (neg? step) (<= start end)) (reverse acc)
+    true (range-onto (+ start step) end step (cons start acc))))
+(defn range
+  "A list of integers from `start` (default `0`) up to (not including)
+  `end`, stepping by `step` (default `1`, may be negative). A `0` step
+  throws `:invalid-range-step` rather than looping forever."
+  ([end] (range 0 end 1))
+  ([start end] (range start end 1))
+  ([start end step]
+    (if (= step 0) (throw :invalid-range-step step) (range-onto start end step ()))))
+(defn repeat-onto
+  "`repeat`'s own worker -- tail-recursive, same pattern."
+  [n x acc]
+  (cond
+    (<= n 0) (reverse acc)
+    true (repeat-onto (- n 1) x (cons x acc))))
+(defn repeat
+  "A list of `n` copies of `x`. Unlike Clojure's own `repeat`, there is
+  no unbounded 1-arity form -- that needs a real lazy sequence, which
+  this eager seq layer doesn't have."
+  [n x]
+  (repeat-onto n x ()))
+;; ---- conj / peek / pop --------------------------------------------------------------
+;; `conj` dispatches on `coll`'s own shape exactly like `into` above --
+;; the one-element-at-a-time cousin of it, not a separate design.
+
+(defn conj
+  "Adds `xs` to `coll`, one at a time, in the position natural for
+  `coll`'s own shape: prepend for a list/`nil`, append for a vector,
+  union into a set (a sorted-set stays sorted). Each of `xs` for a map
+  target must be a 2-element `(k v)` list, `assoc`'d in (a sorted-map
+  stays sorted, ordered by its own comparator)."
+  [coll & xs]
+  (reduce
+    (fn [acc x]
+      (cond
+        (or (nil? acc) (list? acc)) (cons x acc)
+        (vector? acc) (list->vector (concat (to-list acc) (list x)))
+        (and (set? acc) (sorted? acc)) (sorted-set-put acc x)
+        (set? acc) (list->set (cons x (to-list acc)))
+        (map? acc) (assoc acc (first x) (first (rest x)))
+        true (throw :invalid-conj-target (list :coll acc))))
+    coll
+    xs))
+;; ---- disj -----------------------------------------------------------------------
+;; `conj`'s removal counterpart -- set-only, matching real Clojure
+;; (`disj` has no list/vector/map form). `nil` stays `nil` throughout
+;; (an empty set has nothing to remove), matching how `nil` doubles as
+;; "empty" everywhere else in this file.
+
+(defn disj
+  "Removes `xs` from set `coll`, one at a time. `coll` must be a set,
+  sorted-set, or `nil` (a no-op)."
+  [coll & xs]
+  (reduce
+    (fn [acc x]
+      (cond
+        (nil? acc) nil
+        (and (set? acc) (sorted? acc)) (sorted-set-remove acc x)
+        (set? acc) (list->set (filter (fn [e] (not (= e x))) (to-list acc)))
+        true (throw :invalid-disj-target (list :coll acc))))
+    coll
+    xs))
+(defn peek
+  "The 'top' of `coll`'s stack shape: the first element for a list, the
+  last for a vector (Clojure's own two different \"natural end\"
+  conventions for the two shapes). `nil` for an empty collection."
+  [coll]
+  (cond
+    (vector? coll) (last (to-list coll))
+    true (first (to-list coll))))
+(defn pop
+  "`coll` with its 'top' removed (see `peek`): the rest for a list,
+  everything but the last for a vector."
+  [coll]
+  (cond
+    (vector? coll) (list->vector (take (dec (count coll)) (to-list coll)))
+    true (rest (to-list coll))))
+;; ---- keys / vals / contains? ---------------------------------------------------
+;; `keys`/`vals` are map-only (a plain map or sorted-map; `nil` counts as
+;; empty, same as everywhere else) -- matching real Clojure, which throws
+;; on a non-map argument rather than silently doing something else.
+;; `contains?` is a pure sentinel-default wrapper over `get` -- no
+;; primitive of its own needed, since `get` (`Logos.Primitives`) already
+;; dispatches correctly across every shape it should check (map/
+;; sorted-map/record key, vector index bounds, set/sorted-set
+;; membership); `not-found-sentinel` is an effectively-unique keyword so
+;; a real stored value can never be mistaken for "absent" -- public
+;; despite being an implementation detail (not `^:private`), since
+;; `contains?` runs with whatever namespace CALLED it as current (this
+;; file's own header comment on why bare-symbol resolution isn't scoped
+;; to a helper's defining namespace) -- a private var here is only
+;; reachable via the "direct var in the current namespace" check, never
+;; through `logos.core`'s own refer of `logos.seq` (which DOES filter by
+;; `public?`), so marking it private would break `contains?` for every
+;; caller outside `logos.seq` itself, i.e. always in practice.
+
+(defn keys
+  "A list of `coll`'s keys, in `coll`'s own iteration order. `coll` must
+  be a map or sorted-map (or `nil`, treated as empty)."
+  [coll]
+  (if (or (nil? coll) (map? coll))
+    (map first (to-list coll))
+    (throw :invalid-args (list :keys coll))))
+(defn vals
+  "A list of `coll`'s values, in `coll`'s own iteration order. `coll`
+  must be a map or sorted-map (or `nil`, treated as empty)."
+  [coll]
+  (if (or (nil? coll) (map? coll))
+    (map (fn [pair] (first (rest pair))) (to-list coll))
+    (throw :invalid-args (list :vals coll))))
+(def not-found-sentinel
+  "Internal-only marker `contains?`/`get-in` use to tell 'genuinely
+  absent' apart from 'present with value nil' -- never meant to be seen
+  by calling code, hence the deliberately-unlikely-to-collide name."
+  (keyword "logos.core" "not-found"))
+(defn contains?
+  "True if `coll` has an entry for key/index `k` -- a map/sorted-map
+  key, a vector index (bounds-checked), or set/sorted-set membership.
+  `nil` never contains anything."
+  [coll k]
+  (not (= (get coll k not-found-sentinel) not-found-sentinel)))
+;; ---- merge / merge-with -----------------------------------------------------------
+;; Seeded from the first non-`nil` map itself (not always a fresh `{}`),
+;; then `into`s the rest -- `into` (above) is already sorted-map-aware
+;; via `conj`, so merging further maps into a sorted-map keeps it
+;; sorted, matching real Clojure's own `conj`-based `merge`.
+
+(defn merge
+  "Merges `maps` left to right -- a key present in more than one wins
+  from the LAST map that has it. `(merge)` is `nil`; `nil` maps are
+  skipped."
+  [& maps]
+  (reduce
+    (fn [acc m]
+      (cond
+        (nil? m) acc
+        (nil? acc) m
+        true (into acc (to-list m))))
+    nil
+    maps))
+(defn merge-with
+  "Like `merge`, but a key present in more than one map is resolved via
+  `(f old-val new-val)` instead of the later map unconditionally
+  winning."
+  [f & maps]
+  (reduce
+    (fn [acc m]
+      (cond
+        (nil? m) acc
+        (nil? acc) m
+        true
+        (reduce
+          (fn [acc2 pair]
+            (let [k (first pair) v (first (rest pair))]
+              (if (contains? acc2 k) (assoc acc2 k (f (get acc2 k) v)) (assoc acc2 k v))))
+          acc
+          (to-list m))))
+    nil
+    maps))
+;; ---- get-in / assoc-in / update / update-in ----------------------------------------
+
+(def get-in-miss
+  "Internal-only marker `get-in-walk` uses to detect a missing
+  intermediate step without confusing it with a caller-supplied
+  `not-found` value that might otherwise collide with a real one. Public
+  despite being an implementation detail -- see `not-found-sentinel`'s
+  own comment above for why."
+  (keyword "logos.core" "get-in-miss"))
+(defn get-in-walk
+  "`get-in`'s own worker -- walks `ks` into `coll`, short-circuiting to
+  `get-in-miss` the moment any step along the way is missing."
+  [coll ks]
+  (cond
+    (empty? ks) coll
+    true
+    (let [v (get coll (first ks) get-in-miss)]
+      (if (= v get-in-miss) get-in-miss (get-in-walk v (rest ks))))))
+(defn get-in
+  "Nested `get`: walks `ks` (a list/vector of keys/indices) into `coll`,
+  returning `not-found` (default `nil`) if any step along the way is
+  missing."
+  ([coll ks] (get-in coll ks nil))
+  ([coll ks not-found]
+    (let [result (get-in-walk coll (to-list ks))]
+      (if (= result get-in-miss) not-found result))))
+(defn assoc-in
+  "Nested `assoc`: `(assoc-in {:a {:b 1}} [:a :b] 2)` => `{:a {:b 2}}`.
+  Creates intermediate maps as needed (`assoc`'s own `nil`-treated-as-
+  `{}` behavior, recursively)."
+  [coll ks v]
+  (let [ks-list (to-list ks)]
+    (cond
+      (empty? ks-list) v
+      (empty? (rest ks-list)) (assoc coll (first ks-list) v)
+      true
+      (assoc coll (first ks-list) (assoc-in (get coll (first ks-list)) (rest ks-list) v)))))
+(defn update
+  "Returns `coll` with the value at `k` replaced by `(f (get coll k) &
+  args)`."
+  [coll k f & args]
+  (assoc coll k (apply f (get coll k) args)))
+(defn update-in
+  "Nested `update`: `(update-in {:a {:b 1}} [:a :b] inc)` => `{:a {:b
+  2}}`."
+  [coll ks f & args]
+  (let [ks-list (to-list ks)]
+    (cond
+      (empty? ks-list) (apply f coll args)
+      (empty? (rest ks-list))
+      (assoc coll (first ks-list) (apply f (get coll (first ks-list)) args))
+      true
+      (assoc coll (first ks-list)
+        (apply update-in (get coll (first ks-list)) (rest ks-list) f args)))))
+;; ---- select-keys --------------------------------------------------------------------
+
+(defn select-keys
+  "A new map containing only `coll`'s entries whose key is in `ks`.
+  Always returns a plain map even if `coll` was sorted -- a real, minor
+  divergence from Clojure (which preserves a sorted-map's own shape
+  here too), not worth a dedicated sorted-preserving path for this one
+  function."
+  [coll ks]
+  (reduce (fn [acc k] (if (contains? coll k) (assoc acc k (get coll k)) acc)) {} (to-list ks)))
+;; ---- take-while / drop-while --------------------------------------------------------
+
+(defn take-while-onto
+  "`take-while`'s own worker -- tail-recursive, same accumulate-then-
+  `reverse` pattern as `take-onto`/`map-onto` etc. above."
+  [pred items acc]
+  (cond
+    (empty? items) (reverse acc)
+    (pred (first items)) (take-while-onto pred (rest items) (cons (first items) acc))
+    true (reverse acc)))
+(defn take-while
+  "A list of `coll`'s leading elements for which `(pred x)` is truthy,
+  stopping at the first one that isn't."
+  [pred coll]
+  (take-while-onto pred (to-list coll) ()))
+(defn drop-while
+  "`coll` with its leading elements for which `(pred x)` is truthy
+  removed, starting from the first one that isn't."
+  [pred coll]
+  (let [items (to-list coll)]
+    (cond
+      (empty? items) ()
+      (pred (first items)) (drop-while pred (rest items))
+      true items)))
+;; ---- partition / partition-all / partition-by --------------------------------------
+;; `partition`/`partition-all` share `n`/`step`'s own validation (both
+;; must be positive -- this layer is eager, not Clojure's lazy version,
+;; so a non-positive `n`/`step` would otherwise loop forever instead of
+;; just never being fully realized). No 4-arity padding form (real
+;; Clojure's `(partition n step pad coll)`) -- a real, deliberate scope
+;; trim, the same spirit as this file's other trimmed edge variants.
+
+(defn partition-onto
+  [n step items acc]
+  (if (< (count items) n)
+    (reverse acc)
+    (partition-onto n step (drop step items) (cons (list->vector (take n items)) acc))))
+(defn partition
+  "Chunks `coll` into vectors of `n` elements, non-overlapping by
+  default (or stepping by `step` if given -- less than `n` for
+  overlapping chunks, more to skip elements); a trailing chunk shorter
+  than `n` is dropped."
+  ([n coll] (partition n n coll))
+  ([n step coll]
+    (if (or (<= n 0) (<= step 0))
+      (throw :invalid-partition-size (list :n n :step step))
+      (partition-onto n step (to-list coll) ()))))
+(defn partition-all-onto
+  [n step items acc]
+  (cond
+    (empty? items) (reverse acc)
+    true (partition-all-onto n step (drop step items) (cons (list->vector (take n items)) acc))))
+(defn partition-all
+  "Like `partition`, but keeps a trailing chunk shorter than `n` instead
+  of dropping it."
+  ([n coll] (partition-all n n coll))
+  ([n step coll]
+    (if (or (<= n 0) (<= step 0))
+      (throw :invalid-partition-size (list :n n :step step))
+      (partition-all-onto n step (to-list coll) ()))))
+(defn partition-by-onto
+  [f items current-key current-group acc]
+  (cond
+    (empty? items)
+    (if (nil? current-group)
+      (reverse acc)
+      (reverse (cons (list->vector (reverse current-group)) acc)))
+    true
+    (let [x (first items) k (f x)]
+      (cond
+        (nil? current-group) (partition-by-onto f (rest items) k (list x) acc)
+        (= k current-key) (partition-by-onto f (rest items) current-key (cons x current-group) acc)
+        true
+        (partition-by-onto f (rest items) k (list x)
+          (cons (list->vector (reverse current-group)) acc))))))
+(defn partition-by
+  "Chunks `coll` into vectors of consecutive elements that share the
+  same `(f x)`, in order."
+  [f coll]
+  (partition-by-onto f (to-list coll) nil nil ()))
+;; ---- flatten ------------------------------------------------------------------------
+
+(defn flatten-onto
+  [coll acc]
+  (if (or (list? coll) (vector? coll))
+    (reduce (fn [acc2 x] (flatten-onto x acc2)) acc (to-list coll))
+    (cons coll acc)))
+(defn flatten
+  "A single, flat list of every non-sequential leaf in `coll`, descending
+  into nested lists/vectors only -- not maps/sets/strings, matching real
+  Clojure's own `sequential?`-based descent. `(flatten x)` for a
+  non-sequential top-level `x` is `()`, also matching Clojure."
+  [coll]
+  (if (or (list? coll) (vector? coll)) (reverse (flatten-onto coll ())) ()))
+;; ---- zipmap / mapcat / interpose / interleave ---------------------------------------
+;; Deliberately single-collection where Clojure's own version is
+;; variadic (`map`/`mapcat` here only ever take one `coll`) -- a real,
+;; deliberate scope trim, not an oversight: `interleave` is the one
+;; exception, since a single-collection `interleave` is degenerate and
+;; the multi-collection form doesn't actually need a variadic `map` to
+;; implement (it maps `first`/`rest` over the *outer* list of
+;; collections, itself always a single collection).
+
+(defn zipmap-onto
+  [ks vs acc]
+  (cond
+    (or (empty? ks) (empty? vs)) acc
+    true (zipmap-onto (rest ks) (rest vs) (assoc acc (first ks) (first vs)))))
+(defn zipmap
+  "A map pairing each of `ks` with the positionally-corresponding
+  element of `vs`, stopping at the shorter of the two."
+  [ks vs]
+  (zipmap-onto (to-list ks) (to-list vs) {}))
+(defn mapcat
+  "Maps `f` over `coll`, then concatenates every result into one flat
+  list -- `f` must return something `concat`-able (a list, vector, or
+  `nil`) per element."
+  [f coll]
+  (apply concat (map f coll)))
+(defn interpose-onto
+  [sep items acc]
+  (cond
+    (empty? items) (reverse acc)
+    (empty? (rest items)) (reverse (cons (first items) acc))
+    true (interpose-onto sep (rest items) (cons sep (cons (first items) acc)))))
+(defn interpose
+  "A new list with `sep` inserted between every pair of `coll`'s
+  elements."
+  [sep coll]
+  (interpose-onto sep (to-list coll) ()))
+(defn interleave-onto
+  [colls acc]
+  (if (some empty? colls)
+    (reverse acc)
+    (interleave-onto (map rest colls) (reduce (fn [a c] (cons (first c) a)) acc colls))))
+(defn interleave
+  "Interleaves elements from each of `colls`, stopping at the shortest:
+  `(interleave [1 2] [:a :b])` => `(1 :a 2 :b)`. `(interleave)` is
+  `()`."
+  [& colls]
+  (if (empty? colls) () (interleave-onto (map to-list colls) ())))

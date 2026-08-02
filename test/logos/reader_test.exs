@@ -25,6 +25,49 @@ defmodule Logos.ReaderTest do
     assert Reader.read("4/2") == {:ok, 2}
   end
 
+  # Logos decimal values *are* the `decimal` hex package's own
+  # `%Decimal{}` struct directly (see `Logos.Decimal`'s moduledoc) --
+  # `Decimal.new/1` here builds the expected value the same way the
+  # reader itself does internally.
+  test "decimal (M-suffixed), scale preserved exactly" do
+    assert Reader.read("10.99M") == {:ok, Decimal.new("10.99")}
+    assert Reader.read("3M") == {:ok, Decimal.new("3")}
+    assert Reader.read("-2.5M") == {:ok, Decimal.new("-2.5")}
+    # Trailing zero preserved -- NOT the same struct as Decimal.new("10.1"),
+    # even though they're numerically equal (see Decimal.compare/2).
+    assert Reader.read("10.10M") == {:ok, Decimal.new("10.10")}
+    refute Reader.read("10.10M") == Reader.read("10.1M")
+  end
+
+  test "decimal does not interfere with plain int/float/ratio parsing" do
+    assert Reader.read("3") == {:ok, 3}
+    assert Reader.read("3.14") == {:ok, 3.14}
+    assert Reader.read("1/3") == {:ok, %Ratio{num: 1, den: 3}}
+  end
+
+  # `String.to_float/1` requires a literal "." in its input -- "1e5"
+  # alone would raise -- so a bare mantissa with no "." (only an
+  # exponent) gets a ".0" inserted before the "e"/"E" by
+  # `Logos.Reader.Actions`'s `parse_number/1` before parsing, matching
+  # Clojure's own reading of `1e5` as a double.
+  test "exponent-form floats, with and without a decimal point" do
+    assert Reader.read("1.5e10") == {:ok, 1.5e10}
+    assert Reader.read("1E10") == {:ok, 1.0e10}
+    assert Reader.read("1e5") == {:ok, 100_000.0}
+    assert Reader.read("1.5e-10") == {:ok, 1.5e-10}
+    assert Reader.read("-2.5e30") == {:ok, -2.5e30}
+    assert Reader.read("-1e2") == {:ok, -100.0}
+  end
+
+  # `Decimal.new/1` already accepts exponent notation (with or without a
+  # decimal point) on its own, so the `M`-suffix branch needed no special
+  # exponent handling -- just strip the trailing "M" as usual.
+  test "exponent-form decimals (M-suffixed)" do
+    assert Reader.read("1.5e10M") == {:ok, Decimal.new("1.5e10")}
+    assert Reader.read("1e5M") == {:ok, Decimal.new("1e5")}
+    assert Reader.read("1.5E-3M") == {:ok, Decimal.new("1.5E-3")}
+  end
+
   test "string, including escapes" do
     assert Reader.read(~S["hello"]) == {:ok, "hello"}
     assert Reader.read(~S[""]) == {:ok, ""}
@@ -132,17 +175,22 @@ defmodule Logos.ReaderTest do
     assert Reader.read_all("1 2 #_3 4 5") == {:ok, [1, 2, 4, 5]}
   end
 
-  test "anon-fn sugar desugars %1 % as arity 1" do
-    assert {:ok, [%Symbol{name: "fn"}, params, %Symbol{name: "+"}, %Symbol{name: "%"}, 1]} =
-             Reader.read(~S[#(+ % 1)])
+  test "anon-fn sugar desugars a bare % to %1, nested as one body call" do
+    assert {:ok, [%Symbol{name: "fn"}, params, body]} = Reader.read(~S[#(+ % 1)])
 
     assert Vector.to_list(params) == [%Symbol{name: "%1"}]
+    assert body == [%Symbol{name: "+"}, %Symbol{name: "%1"}, 1]
   end
 
-  test "anon-fn sugar desugars %1 %2 as arity 2" do
-    assert {:ok, [%Symbol{name: "fn"}, params | body]} = Reader.read(~S[#(+ %1 %2)])
+  test "anon-fn sugar desugars %1 %2 as arity 2, nested as one body call" do
+    assert {:ok, [%Symbol{name: "fn"}, params, body]} = Reader.read(~S[#(+ %1 %2)])
     assert Vector.to_list(params) == [%Symbol{name: "%1"}, %Symbol{name: "%2"}]
     assert body == [%Symbol{name: "+"}, %Symbol{name: "%1"}, %Symbol{name: "%2"}]
+  end
+
+  test "anon-fn sugar is actually callable end to end (not just structurally desugared)" do
+    assert {:ok, 3, _} = Logos.eval_string(~S[(#(+ % 1) 2)])
+    assert {:ok, 7, _} = Logos.eval_string(~S[(#(+ %1 %2) 3 4)])
   end
 
   test "anon-fn sugar recognizes %& as a rest param" do
@@ -168,5 +216,96 @@ defmodule Logos.ReaderTest do
 
   test "read_all handles leading/trailing whitespace and comments" do
     assert Reader.read_all("\n  1 2 \n ; trailing\n") == {:ok, [1, 2]}
+  end
+
+  # ---- tagged literals (#tag value) ------------------------------------------
+  # Resolved at READ time against Logos.Runtime's :data_readers registry
+  # (Logos.Runtime.new/1 pre-seeds "inst"/"uuid") -- see
+  # Logos.Reader.Actions's handle_rule(:tagged_literal, ...).
+
+  describe "tagged literals" do
+    test "#inst reads a valid RFC3339 instant as a plain string, unchanged" do
+      runtime = Logos.new_runtime()
+
+      assert Reader.read(~S[#inst "2020-01-01T00:00:00Z"], runtime) ==
+               {:ok, "2020-01-01T00:00:00Z"}
+    end
+
+    test "#uuid reads a valid UUID as a plain string, unchanged" do
+      runtime = Logos.new_runtime()
+
+      assert Reader.read(~S[#uuid "550e8400-e29b-41d4-a716-446655440000"], runtime) ==
+               {:ok, "550e8400-e29b-41d4-a716-446655440000"}
+    end
+
+    test "a malformed #inst is a read error, not a silently-accepted string" do
+      runtime = Logos.new_runtime()
+      assert {:error, %Ichor.Error{}} = Reader.read(~S[#inst "not-a-date"], runtime)
+    end
+
+    test "a malformed #uuid is a read error" do
+      runtime = Logos.new_runtime()
+      assert {:error, %Ichor.Error{}} = Reader.read(~S[#uuid "not-a-uuid"], runtime)
+    end
+
+    test "an unregistered tag is a clear read error" do
+      runtime = Logos.new_runtime()
+      assert {:error, %Ichor.Error{message: message}} = Reader.read(~S[#nope "x"], runtime)
+      assert message =~ "no data reader registered"
+    end
+
+    test "reading a tagged literal with no Runtime in scope is a clear error, not a crash" do
+      assert {:error, %Ichor.Error{message: message}} =
+               Reader.read(~S[#inst "2020-01-01T00:00:00Z"])
+
+      assert message =~ "no Runtime in scope"
+    end
+
+    test "resolution happens at READ time -- quote still yields the resolved value" do
+      runtime = Logos.new_runtime()
+
+      assert {:ok, "2020-01-01T00:00:00Z", _env} =
+               Logos.eval_string(~S['#inst "2020-01-01T00:00:00Z"], runtime)
+    end
+
+    test "these two tags are a deliberate, documented round-trip exception: they print back as plain strings, not #inst/#uuid" do
+      runtime = Logos.new_runtime()
+      {:ok, value} = Reader.read(~S[#inst "2020-01-01T00:00:00Z"], runtime)
+      assert Logos.Printer.print(value) == ~S["2020-01-01T00:00:00Z"]
+    end
+
+    test "register-data-reader! teaches the reader a new tag, resolved through the same allowlist import uses" do
+      runtime = Logos.new_runtime()
+
+      {:ok, _, _} =
+        Logos.eval_string_sequence(
+          "(register-data-reader! (quote upper) (quote String.upcase))",
+          runtime
+        )
+
+      assert Reader.read(~S[#upper "hello"], runtime) == {:ok, "HELLO"}
+    end
+
+    test "register-data-reader! against a non-allowlisted name fails clearly" do
+      runtime = Logos.new_runtime()
+
+      assert {:error, {:not_allowlisted, "Not.Allowlisted"}} =
+               Logos.eval_string(
+                 "(register-data-reader! (quote nope) (quote Not.Allowlisted))",
+                 runtime
+               )
+    end
+
+    test "a namespaced tag (#my/tag) resolves by its full ns/name text" do
+      runtime = Logos.new_runtime()
+
+      {:ok, _, _} =
+        Logos.eval_string_sequence(
+          "(register-data-reader! (quote my/tag) (quote String.reverse))",
+          runtime
+        )
+
+      assert Reader.read(~S[#my/tag "abc"], runtime) == {:ok, "cba"}
+    end
   end
 end

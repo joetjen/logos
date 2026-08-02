@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Logos.Run do
 
   ## Usage
 
-      mix logos.run path/to/script.lisp [arg1 arg2 ...]
+      mix logos.run path/to/script.logos [arg1 arg2 ...]
       mix logos.run -e "(+ 1 2)" [arg1 arg2 ...]
 
   Any arguments after the script path (or after the `-e` expression) are
@@ -51,7 +51,7 @@ defmodule Mix.Tasks.Logos.Run do
   """
   @spec run_source(String.t(), [String.t()]) :: {:ok, term()} | {:error, term()}
   def run_source(source, script_argv \\ []) when is_binary(source) and is_list(script_argv) do
-    runtime = Logos.new_runtime()
+    runtime = Logos.new_runtime(load_paths: ["lib"])
     Runtime.set_argv!(runtime, script_argv)
 
     case Logos.eval_string_sequence(source, runtime) do
@@ -72,7 +72,7 @@ defmodule Mix.Tasks.Logos.Run do
   end
 
   def parse_argv([]) do
-    {:error, "usage: mix logos.run PATH.lisp [args...] | mix logos.run -e \"expr\" [args...]"}
+    {:error, "usage: mix logos.run PATH.logos [args...] | mix logos.run -e \"expr\" [args...]"}
   end
 
   # `Ichor.Error` is a plain struct, not an Exception -- format it via

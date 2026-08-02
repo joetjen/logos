@@ -40,6 +40,18 @@ defmodule Logos.RuntimeTest do
     assert String.starts_with?(b, "G__")
   end
 
+  describe "load_paths/1" do
+    test "defaults to [] when :load_paths isn't passed to new/1" do
+      rt = Runtime.new()
+      assert Runtime.load_paths(rt) == []
+    end
+
+    test "reflects the :load_paths opt passed to new/1" do
+      rt = Runtime.new(load_paths: ["lib", "priv/stdlib"])
+      assert Runtime.load_paths(rt) == ["lib", "priv/stdlib"]
+    end
+  end
+
   describe "circular-require detection (loading set)" do
     test "start_loading! then start_loading! again for the same name is an error" do
       rt = Runtime.new()

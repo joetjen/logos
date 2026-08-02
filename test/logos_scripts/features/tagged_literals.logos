@@ -1,0 +1,15 @@
+;; Feature test: `#tag value` tagged literals, resolved at READ time
+;; against `Logos.Runtime`'s `:data_readers` registry (`#inst`/`#uuid`
+;; pre-registered by every fresh Runtime). A malformed literal is a
+;; READ-time error -- can't be exercised here via `assert-throws` (an
+;; eval-time construct); see `test/logos/reader_test.exs` for that
+;; coverage instead.
+
+(require '[logos.test :refer [:all]])
+(deftest inst-reads-as-a-plain-string
+  (assert= #inst "2020-01-01T00:00:00Z" "2020-01-01T00:00:00Z"))
+(deftest uuid-reads-as-a-plain-string
+  (assert= #uuid "550e8400-e29b-41d4-a716-446655440000" "550e8400-e29b-41d4-a716-446655440000"))
+(deftest tagged-literal-resolves-at-read-time-not-eval-time
+  (assert= (quote #inst "2020-01-01T00:00:00Z") "2020-01-01T00:00:00Z"))
+(run-tests)

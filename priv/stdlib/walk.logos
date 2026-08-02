@@ -1,0 +1,78 @@
+;; priv/stdlib/walk.logos
+;;
+;; `logos.walk` -- generic recursive tree transformation over Logos's
+;; own collection types, a direct port of real Clojure's `clojure.walk`.
+;; Loaded into every `Logos.Runtime` (see `Logos.Stdlib`), but --
+;; matching real Clojure's own `clojure.walk` being a separate,
+;; explicitly-required namespace, not part of `clojure.core` -- NOT
+;; auto-referred into `logos.core`. Reachable via `(require
+;; '[logos.walk :refer [:all]])` or `(require '[logos.walk :as
+;; walk])` plus `walk/prewalk` etc.
+;;
+;; `walk` is the one base combinator everything else is built from: if
+;; `form` is a collection (list/vector/map/set/sorted-map/sorted-set --
+;; `map?`/`set?` (`core.logos`) already accept both a plain and sorted
+;; variant), it maps `inner` over each of its elements (a map's own
+;; entries walked as 2-element LISTS `(k v)`, matching how `to-list`
+;; already represents map entries everywhere else in this codebase --
+;; deliberately not real Clojure's vector-shaped `MapEntry`, since
+;; `first`/`rest` only ever accept lists/`nil` here, never vectors) and
+;; rebuilds the same *kind* of collection from the results before
+;; handing it to `outer`; a non-collection `form` (including `nil`,
+;; which isn't a collection here either, matching real Clojure's own
+;; `(coll? nil)` => `false`) goes straight to `outer` unchanged.
+;;
+;; **Rebuilding a map or a sorted-map/sorted-set always produces a
+;; plain map/set** -- a real, deliberate scope trim: real Clojure
+;; preserves the exact input collection's own type via `(into (empty
+;; form) ...)`, but Logos has no `empty` function (a generic "same
+;; shape, zero elements" constructor) to build on -- the same reason
+;; `select-keys` (`logos.seq`) already accepts this same trim rather
+;; than adding one just for this.
+;;
+;; **No helper here is `^:private`** -- same reasoning as `logos.set`'s
+;; own header comment (every function below runs with whatever
+;; namespace *called* it as current, not `logos.walk` itself).
+;;
+;; **Every internal cross-call to another function in THIS file --
+;; `postwalk`/`prewalk` calling `walk`, and each calling itself
+;; recursively inside the closure it hands `walk` -- uses the fully-
+;; qualified `logos.walk/walk`/`logos.walk/postwalk`/
+;; `logos.walk/prewalk`, never a bare reference.** `logos.walk` is
+;; deliberately NOT auto-referred into `logos.core` (see above), so a
+;; namespace that only did `(require '[logos.walk :as walk])` (no
+;; `:refer`) has never pulled `walk` itself into its own unqualified
+;; scope -- only the `walk/walk` qualified spelling. Since
+;; `postwalk`/`prewalk`'s bodies (and the closures they build) run with
+;; whatever namespace *called* `walk/postwalk` as current, not
+;; `logos.walk` itself, a bare `(walk ...)` inside them would try to
+;; resolve `walk` against the CALLER's own scope and fail there, even
+;; though the outer call site itself used a perfectly correct qualified
+;; reference. A qualified self-reference always resolves directly
+;; against the literal target namespace regardless of caller context --
+;; see `logos.set`'s own header comment for the fuller explanation and
+;; the actual smoke-test failure this was caught by.
+
+(defn walk
+  "The base of `clojure.walk`: maps `inner` over `form`'s own elements
+  (rebuilding the same kind of collection) before applying `outer` to
+  the result; a non-collection `form` goes straight to `outer`
+  unchanged. See this file's header comment for the map/sorted-
+  collection caveat."
+  [inner outer form]
+  (cond
+    (map? form) (outer (into {} (map inner (to-list form))))
+    (vector? form) (outer (list->vector (map inner (to-list form))))
+    (set? form) (outer (into #{} (map inner (to-list form))))
+    (list? form) (outer (map inner form))
+    true (outer form)))
+(defn postwalk
+  "Recursively transforms `form` bottom-up: `f` runs on each node's own
+  children first, then on the (already-transformed) node itself."
+  [f form]
+  (logos.walk/walk (fn [x] (logos.walk/postwalk f x)) f form))
+(defn prewalk
+  "Recursively transforms `form` top-down: `f` runs on each node
+  first, then descends into its (already-`f`-applied) children."
+  [f form]
+  (logos.walk/walk (fn [x] (logos.walk/prewalk f x)) identity (f form)))

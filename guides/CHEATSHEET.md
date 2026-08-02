@@ -65,10 +65,10 @@ cheatsheet, see [LOGOS_CHEATSHEET.md](language/LOGOS_CHEATSHEET.md).
 | Task | Code |
 |---|---|
 | Start a local REPL | `mix logos.repl` |
-| Run a script file | `mix logos.run path/to/script.lisp arg1 arg2` |
+| Run a script file | `mix logos.run path/to/script.logos arg1 arg2` |
 | Run an inline expression | `mix logos.run -e "(+ 1 2)"` |
-| Format files in place | `mix logos.format "lib/**/*.lisp"` |
-| Check formatting (CI) | `mix logos.format --check-formatted "lib/**/*.lisp"` |
+| Format files in place | `mix logos.format "lib/**/*.logos"` |
+| Check formatting (CI) | `mix logos.format --check-formatted "lib/**/*.logos"` |
 | Attach a remote REPL | `mix logos.remsh --sname r1 --cookie secret --target host@node --runtime my-runtime` |
 | Register a runtime for `logos.remsh` | `Logos.Runtime.Registry.register("my-runtime", runtime)` |
 

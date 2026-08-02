@@ -1,0 +1,82 @@
+;; Feature test: let/if/when/unless/and/or, defmacro hygiene
+;; (auto-gensym never collides with a caller's own locals), recursive and
+;; multi-arity defn, defmacro's docstring + ^:macro metadata support, and
+;; #(...) anon-fn sugar.
+
+(require '[logos.test :refer [:all]])
+(deftest let-and-if
+  (assert= (let [x 1 y (+ x 1)] (+ x y)) 3)
+  (assert= (let [x 1] x 2 3) 3)
+  (assert= (if true :yes :no) :yes)
+  (assert= (if false :yes :no) :no)
+  (assert= (if false 1) nil))
+(deftest when-unless
+  (assert= (when true 1 2 3) 3)
+  (assert= (unless false 1 2 3) 3))
+(deftest and-or-last-value-semantics
+  (assert= (and 1 2 3) 3)
+  (assert= (and true false :never-reached) false)
+  (assert= (or false nil 5) 5)
+  (assert= (or) false)
+  (assert= (and) true)
+  ;; and/or's own gensym'd temp never collides with a caller's local also
+  ;; named (or looking like) a gensym -- every syntax-quote expansion
+  ;; mints a fresh symbol.
+  (assert= (let [g 10] (and g (+ g 1))) 11))
+(deftest recursive-defn
+  ;; A recursive defn resolves itself through the namespace, not a
+  ;; lexical/closure self-reference.
+  (do
+    (defn macros-test-fact [n]
+      (if (< n 2) 1 (* n (macros-test-fact (- n 1)))))
+    (assert= (macros-test-fact 5) 120)))
+;; Defined at the script's own top level, NOT inside the deftest body
+;; below that uses it: a macro's definition and its use can never share
+;; one top-level form -- the whole form macroexpands as a single unit
+;; before any of it evaluates (standard Lisp semantics, not specific to
+;; `deftest`), so `macros-test-double` wouldn't exist yet as a macro at
+;; the point a sibling `(macros-test-double 21)` in the SAME form got
+;; macroexpanded.
+(defmacro macros-test-double "doubles x" [x] (list '* 2 x))
+(deftest defmacro-docstring-and-metadata
+  (do
+    (assert= (macros-test-double 21) 42)
+    (assert= (doc macros-test-double) "doubles x")
+    (assert (macro? 'macros-test-double))
+    (assert (macro? 'let))
+    (assert (macro? 'defmacro))))
+(deftest defn-private
+  (do
+    (defn- macros-test-secret [] :hidden)
+    (assert= (macros-test-secret) :hidden)))
+(deftest defn-multi-arity
+  (do
+    (defn macros-test-greet
+      ([] (macros-test-greet "world"))
+      ([name] (str "hi, " name)))
+    (assert= (macros-test-greet) "hi, world")
+    (assert= (macros-test-greet "jan") "hi, jan")
+    (defn macros-test-sum
+      "adds its arguments, however many there are"
+      ([a] a)
+      ([a b] (+ a b))
+      ([a b & more] (+ a b (apply + more))))
+    (assert= (macros-test-sum 1) 1)
+    (assert= (macros-test-sum 1 2) 3)
+    (assert= (macros-test-sum 1 2 3 4) 10)
+    (assert= (doc macros-test-sum) "adds its arguments, however many there are")))
+(deftest anon-fn-sugar
+  ;; #(...) desugars its captured body as ONE nested call, not several
+  ;; spliced body forms -- both the bare-% and numbered-placeholder
+  ;; forms.
+  (do
+    (assert= (#(+ % 1) 5) 6)
+    (assert= (#(+ %1 %2) 3 4) 7)
+    (assert= (map #(* % %) (list 1 2 3)) (list 1 4 9))))
+(deftest try-catch-in-a-syntax-quoted-macro
+  ;; Regression coverage for the catch/finally auto-qualification fix
+  ;; (see test/logos/syntax_quote_test.exs for the unit-level test) --
+  ;; assert-throws itself IS this pattern, so a passing suite already
+  ;; exercises it, but this spells it out explicitly too.
+  (assert-throws :boom (throw :boom "caught")))
+(run-tests)

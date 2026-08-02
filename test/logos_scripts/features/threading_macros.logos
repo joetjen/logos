@@ -1,0 +1,41 @@
+;; Feature test: ->, ->>, some->, some->>, as->, cond->, cond->> --
+;; real Clojure threading-macro semantics, end to end.
+
+(require '[logos.test :refer [:all]])
+(deftest thread-first
+  (do
+    (assert= (-> 1 (+ 2) (* 3)) 9)
+    (defn threading-test-inc [x] (+ x 1))
+    (assert= (-> 5 threading-test-inc) 6)))
+(deftest thread-last
+  (assert=
+    (->> (list 1 2 3) (map #(* % 2)) (filter #(> % 2)))
+    (list 4 6)))
+(deftest some-thread-first
+  (do
+    (assert= (some-> 1 (+ 2) (* 3)) 9)
+    ;; The INITIAL value is checked for nil too, not just each step's
+    ;; result -- (totally-unbound-thing) below would crash if this ever
+    ;; got evaluated, proving the short-circuit happens before any step.
+    (assert= (some-> nil (+ 2) (totally-unbound-thing)) nil)
+    (assert= (some-> {:a 1} (get :missing) (+ 10)) nil)))
+(deftest some-thread-last
+  (do
+    (assert= (some->> (list 1 2) (map #(* % 2))) (list 2 4))
+    (assert= (some->> nil (map #(* % 2))) nil)))
+(deftest as-thread
+  (do
+    (assert= (as-> 1 x (+ x 1) (* x 2)) 4)
+    (assert= (as-> 1 x) 1)
+    ;; `x` can appear in a non-first/non-last argument position --
+    ;; -> / ->> can't do this, since they always insert automatically.
+    (assert= (as-> {:a 1} m (assoc m :b 2) (get m :b)) 2)))
+(deftest cond-thread-first
+  (do
+    (assert= (cond-> 1 true (+ 1) false (* 100) true (* 2)) 4)
+    (assert= (cond-> 1) 1)))
+(deftest cond-thread-last
+  (assert=
+    (cond->> (list 1 2) true (cons 0) false (cons 99))
+    (list 0 1 2)))
+(run-tests)

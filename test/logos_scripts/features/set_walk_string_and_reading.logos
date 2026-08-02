@@ -1,0 +1,52 @@
+;; Feature test: `logos.set` (union/intersection/difference/subset?/
+;; superset?/select/map-invert/rename-keys), `logos.walk` (walk/
+;; postwalk/prewalk), `logos.string` (Clojure-idiomatic string
+;; manipulation over allowlisted Elixir interop), and `read-string`/
+;; `pr-str` (`logos.core`).
+
+(require '[logos.test :refer [:all]])
+(require '[logos.set :as set])
+(require '[logos.walk :as walk])
+(require '[logos.string :as str])
+(deftest set-algebra
+  (do
+    (assert= (set/union #{1 2} #{2 3}) #{1 2 3})
+    (assert= (set/intersection #{1 2 3} #{2 3 4}) #{2 3})
+    (assert= (set/difference #{1 2 3} #{2}) #{1 3})
+    (assert (set/subset? #{1 2} #{1 2 3}))
+    (assert (set/superset? #{1 2 3} #{1 2}))
+    (assert= (set/select even? #{1 2 3 4}) #{2 4})
+    (assert= (set/map-invert {:a 1 :b 2}) {1 :a 2 :b})
+    (assert= (set/rename-keys {:a 1 :b 2} {:a :aa}) {:aa 1 :b 2})))
+(deftest walk-transforms
+  (do
+    (assert= (walk/postwalk (fn [x] (if (number? x) (inc x) x)) (list 1 (list 2 3)))
+      (list 2 (list 3 4)))
+    (assert= (walk/prewalk (fn [x] (if (number? x) (inc x) x)) (list 1 (list 2 3)))
+      (list 2 (list 3 4)))
+    (assert= (walk/walk identity inc 5) 6)))
+(deftest string-manipulation
+  (do
+    (assert= (str/upper-case "hi") "HI")
+    (assert= (str/lower-case "HI") "hi")
+    (assert= (str/capitalize "hello world") "Hello world")
+    (assert= (str/triml "  hi  ") "hi  ")
+    (assert= (str/trimr "  hi  ") "  hi")
+    (assert (str/includes? "hello" "ell"))
+    (assert (str/starts-with? "hello" "he"))
+    (assert (str/ends-with? "hello" "lo"))
+    (assert (str/blank? "   "))
+    (assert (not (str/blank? "x")))
+    (assert= (str/join "," (list 1 2 3)) "1,2,3")
+    (assert= (str/split-lines "a\nb\nc") (list "a" "b" "c"))
+    (assert= (str/replace "hello" "l" "L") "heLLo")
+    (assert= (str/reverse "hello") "olleh")))
+(deftest read-string-and-pr-str
+  (do
+    (assert= (read-string "(1 2 3)") (list 1 2 3))
+    (assert= (pr-str "hi") "\"hi\"")
+    (assert= (str "hi") "hi")
+    (assert-throws :read-error (read-string "(1 2"))
+    (let [v (list 1 :a "s" [1 2] {:a 1} nil true)]
+      (assert= (read-string (pr-str v)) v))))
+(run-tests)

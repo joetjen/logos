@@ -1,7 +1,7 @@
 defmodule Logos.AtomTest do
   @moduledoc """
   `atom`/`deref`/`swap!`/`reset!` -- ordinary Lisp functions
-  (`stdlib.lisp`) built on `spawn`/`send`/`receive`. The concurrent
+  (`concurrency.logos`) built on `spawn`/`send`/`receive`. The concurrent
   `swap!` race test is the real point of this file: `swap!`'s update
   function travels as the message and is applied *inside the atom's own
   process*, so BEAM's

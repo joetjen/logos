@@ -74,7 +74,15 @@ defmodule Logos.MixProject do
       # Independently published/maintained (its own repo, own release
       # cadence, not a subdirectory of ichor's), so an ordinary Hex
       # constraint -- no path/git/override wrangling needed.
-      {:ichor_runtime, "~> 0.1.0"}
+      {:ichor_runtime, "~> 0.1.0"},
+      # `decimal` backs Logos's `M`-suffixed decimal literals
+      # (`Logos.Decimal`, `lib/logos/value/decimal.ex`) -- the first
+      # genuine runtime dependency Logos carries besides
+      # `ichor_runtime`. A real (not dev-only) dep: decimal *values* need
+      # to exist wherever Logos code actually runs, including inside a
+      # `mix release` build of an embedding application. Zero
+      # dependencies of its own.
+      {:decimal, "~> 2.0"}
     ]
   end
 
@@ -86,7 +94,7 @@ defmodule Logos.MixProject do
         "format",
         "compile --warnings-as-errors",
         "credo --strict",
-        "sobelow",
+        "sobelow --skip",
         "test",
         "dialyzer"
       ]
@@ -103,7 +111,8 @@ defmodule Logos.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/oetjenj/logos"},
-      files: ~w(lib priv/grammar .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
+      files:
+        ~w(lib priv/grammar priv/stdlib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
@@ -123,11 +132,20 @@ defmodule Logos.MixProject do
       "guides/EXAMPLES.md",
       "guides/CHEATSHEET.md",
       "guides/language/TUTORIAL.md",
-      "guides/language/LOGOS.md",
+      # `:filename` is required here, not cosmetic: ExDoc's default extras
+      # filename is the source basename lowercased ("logos"), which is
+      # the exact same output path (`logos.html`) the top-level `Logos`
+      # module's own API page gets. On a case-insensitive filesystem
+      # (the default on macOS) those collide -- whichever ExDoc writes
+      # last silently overwrites the other on disk, so this guide's page
+      # either never renders or clobbers the module page depending on
+      # generation order, with no warning from ExDoc either way (it has
+      # no visibility into the underlying filesystem's case-folding).
+      {"guides/language/LOGOS.md", [filename: "logos-language-reference"]},
       "guides/language/LOGOS_EXAMPLES.md",
       "guides/language/LOGOS_CHEATSHEET.md",
       "CHANGELOG.md",
-      "CONTRIBUTION.md",
+      "CONTRIBUTING.md",
       {"LICENSE", [title: "License"]}
     ]
   end

@@ -1,0 +1,27 @@
+;; Feature test: arithmetic, chained comparisons, and ratio correctness
+;; (exact rational division, ratio-aware +/-/*, and ratio-aware </>/<=/>=
+;; comparing by fraction magnitude rather than struct fields).
+
+(require '[logos.test :refer [:all]])
+(deftest arithmetic-basics
+  (assert= (+ 1 2 3) 6)
+  (assert= (- 10 6 8) -4)
+  (assert= (* 2 3 4) 24))
+(deftest ratio-division
+  (assert= (/ 1 2) 1/2)
+  (assert= (/ (/ 1 3) 2) 1/6))
+(deftest ratio-add-sub-mul
+  (assert= (+ 1/3 2/3) 1)
+  (assert= (- 1/2 1/3) 1/6)
+  (assert= (* 1/3 2) 2/3)
+  (assert= (* 1/2 1/2) 1/4))
+(deftest ratio-comparison
+  (assert (< 1/3 1/2))
+  (assert= (> 1/3 1/2) false)
+  (assert (<= 1/2 1/2))
+  (assert (>= 1/2 1/2)))
+(deftest chained-comparison
+  (assert= (< 1 2 3) true)
+  (assert= (< 1 3 2) false)
+  (assert= (= 1 1 1) true))
+(run-tests)

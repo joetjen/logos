@@ -1,97 +1,12 @@
-;; lib/logos/stdlib.lisp
+;; priv/stdlib/concurrency.logos
 ;;
-;; The standard library's self-hosted layer, loaded into `logos.core` at
-;; startup. `Logos.Stdlib.load!/1` reads this file and evaluates every
-;; top-level form here with the current namespace set to `logos.core`, so
-;; every `def`/`defmacro` below interns into `logos.core` -- visible
-;; everywhere else via the implicit-core-refer mechanism (see
-;; `Logos.Namespace`'s moduledoc). The first two lines bootstrap
-;; `defmacro` itself (`def` + `set-macro!`), since every macro below
-;; needs `defmacro` to already exist.
-;;
-;; ## Syntax-quote and hygiene
-;;
-;; Backtick/unquote/unquote-splice (`` ` ``/`~`/`~@`) desugar into
-;; `list`/`concat`/`quote` calls at read time (see
-;; `lib/logos/reader/actions.ex`); free symbols inside a syntax-quote
-;; auto-qualify against the current namespace, and `x#` auto-gensyms
-;; consistently within one syntax-quote expansion (every occurrence of a
-;; given `x#` in one expansion gets the same fresh symbol, but a new
-;; expansion gets a different one). This is what gives macros hygiene: a
-;; macro's own internal temporaries can never collide with a symbol the
-;; macro's caller happens to use. Every macro below is built with
-;; syntax-quote except two: `defmacro`'s own two-line bootstrap, which
-;; must stay expressible *without* syntax-quote, since `defmacro` itself
-;; is what makes syntax-quote-using macros possible to write in the first
-;; place; and `build-let`, an ordinary non-macro recursive helper --
-;; syntax-quote only changes how *macros* build their expansion, it has
-;; nothing to do with an ordinary recursive function like this one.
-;;
-;; ## and/or: real Clojure "last value" semantics
-;;
-;; `and`/`or` evaluate each form at most once and return the
-;; last-evaluated value rather than a plain `true`/`false` (`(and 1 2)`
-;; => `2`, `(or false 5)` => `5`), while still short-circuiting. This
-;; requires binding each non-final form's value to a hygienic temporary
-;; (`g#`, auto-gensym'd by syntax-quote) so it can be tested for
-;; truthiness and then returned without re-evaluating it -- not safe to
-;; hand-roll without auto-gensym, since a hand-written temp name could
-;; collide with a caller's own binding of the same name.
-;; ---- defmacro bootstrap (2 lines) --------------------------------------------
-
-(def defmacro
-  (fn [name params & body]
-    (list 'do
-      (list 'def name (cons 'fn (cons params body)))
-      (list 'set-macro! (list 'quote name) true))))
-(set-macro! 'defmacro true)
-;; ---- let --------------------------------------------------------------------
-;; `build-let` is an ordinary (non-macro) helper: given the bindings
-;; vector already flattened to a list (`[a 1 b 2]` -> `(a 1 b 2)`) and the
-;; body forms, it builds nested immediately-invoked single-arg `fn`s:
-;; `(let [a 1 b 2] body)` -> `((fn [a] ((fn [b] (do body)) 2)) 1)`.
-
-(def build-let
-  (fn [pairs body]
-    (cond
-      (= pairs ()) (cons 'do body)
-      true (list
-        (cons 'fn (cons (vector (first pairs)) (list (build-let (rest (rest pairs)) body))))
-        (first (rest pairs))))))
-(defmacro let [bindings & body]
-  (build-let (to-list bindings) body))
-;; ---- if -----------------------------------------------------------------------
-;; `if` is implemented as a macro built on top of `cond`:
-;; `(if test then else?)` expands to `(cond test then true else-or-nil)`.
-
-(defmacro if [test then & else]
-  `(cond ~test ~then true ~(cond (= else ()) nil true (first else))))
-;; ---- when / unless --------------------------------------------------------
-
-(defmacro when [test & body]
-  `(cond ~test (do ~@body) true nil))
-(defmacro unless [test & body]
-  `(cond ~test nil true (do ~@body)))
-;; ---- and / or ---------------------------------------------------------------
-;; Real Clojure "last value" semantics (see the header comment above):
-;; each form is evaluated at most once, via a gensym'd temp so a caller's
-;; own use of the same-looking name can never be captured or collide
-;; with it.
-
-(defmacro and [& forms]
-  (cond
-    (= forms ()) true
-    (= (rest forms) ()) (first forms)
-    true `(let [g# ~(first forms)] (cond g# (and ~@(rest forms)) true g#))))
-(defmacro or [& forms]
-  (cond
-    (= forms ()) false
-    (= (rest forms) ()) (first forms)
-    true `(let [g# ~(first forms)] (cond g# g# true (or ~@(rest forms))))))
-;; ---- defn ---------------------------------------------------------------------
-
-(defmacro defn [name params & body]
-  `(def ~name (fn ~params ~@body)))
+;; `logos.concurrency` -- `receive` (built on the `receive-match!`
+;; primitive) and atoms (`atom`/`deref`/`swap!`/`reset!`), both ordinary
+;; Logos code layered on top of `Logos.Process`'s real BEAM primitives.
+;; Loaded into its own namespace, then referred into `logos.core` by
+;; `Logos.Stdlib.load!/1` -- see that module and `core.logos`'s header
+;; comment for why that makes everything below usable unqualified from
+;; any namespace.
 ;; ---- receive ------------------------------------------------------------------
 ;;
 ;; `receive` must be a macro, not an ordinary function built on
@@ -144,9 +59,26 @@
 ;; `receive-preds`/`receive-cond-pairs`) are ordinary non-macro functions,
 ;; each operating on the still-unevaluated clause forms at macro-expansion
 ;; time -- exactly the same "helper function building code as data" pattern
-;; `build-let` above already uses for `let`.
+;; `build-let` (in `core.logos`) already uses for `let`.
+;;
+;; **None of them are `^:private`, unlike `build-let`/`ns-clause-forms` in
+;; `core.logos`.** `receive`'s own expansion-building code (which calls
+;; these) runs during macro-expansion of whatever call site invokes
+;; `receive` -- e.g. `atom-loop` below, or a `receive` written directly by
+;; end-user code -- with `logos.core`'s current-ns AT THAT CALL SITE
+;; (typically `user`), not `logos.concurrency`. A private helper is only
+;; reachable via the privacy-blind "direct var in the current namespace"
+;; check, which never matches here; it would have to come through
+;; `logos.core`'s *refer* of `logos.concurrency` instead, which DOES
+;; filter by `public?`. Marking these private would silently break
+;; `receive` (and everything built on it: `atom`/`deref`/`swap!`/
+;; `reset!`) the moment it's called from outside `logos.concurrency`
+;; itself -- see `core.logos`'s header comment for the general rule this
+;; is an instance of.
 
 (def receive-after-clause?
+  "True if `clause` is `receive`'s optional trailing `(after ...)`
+  clause."
   (fn [clause]
     (= (first clause) 'after)))
 ;; Splits `clauses` into a 2-element LIST `(normal-clauses
@@ -155,6 +87,8 @@
 ;; `(after ...)` clause out if present.
 
 (def receive-split
+  "Splits `clauses` into `(normal-clauses after-clause-or-nil)` -- see
+  the comment above this def."
   (fn [clauses]
     (cond
       (= clauses ()) (list () nil)
@@ -166,6 +100,7 @@
 ;; Every clause's test expression, in order.
 
 (def receive-preds
+  "Every one of `clauses`' test expressions, in order, as a flat list."
   (fn [clauses]
     (cond
       (= clauses ()) ()
@@ -174,13 +109,20 @@
 ;; to splice into a `cond`.
 
 (def receive-cond-pairs
+  "Every one of `clauses` flattened to `(test1 handler1 test2 handler2
+  ...)`, ready to splice into a `cond` form."
   (fn [clauses]
     (cond
       (= clauses ()) ()
       true (cons (first (first clauses))
         (cons (first (rest (first clauses)))
           (receive-cond-pairs (rest clauses)))))))
-(defmacro receive [msg-vec & clauses]
+(defmacro receive
+  "`(receive [msg] (test1 handler1) (test2 handler2) ... (after ms
+  default))` -- blocks until a mailbox message matches one of the given
+  tests, binding it to `msg`; see this section's header comment for the
+  full grammar."
+  [msg-vec & clauses]
   (let [msg (first (to-list msg-vec))
       split (receive-split clauses)
       normal-clauses (first split)
@@ -228,7 +170,11 @@
 ;; extended with `@`, so this is a deliberate decision to skip it --
 ;; `(deref a)` function-call syntax only.
 
-(defn atom-loop [state]
+(defn atom-loop
+  "The stateful loop process backing every atom -- see this section's
+  header comment. Public despite being an implementation detail; see the
+  `receive`-helpers note above (same reason)."
+  [state]
   (receive [msg]
     ((= (first msg) :deref)
       (let [caller (first (rest msg))]
@@ -242,17 +188,28 @@
       (let [caller (first (rest msg))
           v (first (rest (rest msg)))]
         (do (send caller (list :ok v)) (atom-loop v))))))
-(defn atom [initial]
+(defn atom
+  "Creates a new atom (a mutable reference cell backed by a real BEAM
+  process) holding `initial`."
+  [initial]
   (pid->atom (spawn (fn [] (atom-loop initial)))))
-(defn deref [a]
+(defn deref
+  "Reads atom `a`'s current value, blocking until its owning process
+  replies."
+  [a]
   (do
     (send a (list :deref (self)))
     (receive [reply] (true (first (rest reply))))))
-(defn swap! [a f]
+(defn swap!
+  "Atomically replaces atom `a`'s value with `(f current-value)`,
+  returning the new value."
+  [a f]
   (do
     (send a (list :swap (self) f))
     (receive [reply] (true (first (rest reply))))))
-(defn reset! [a v]
+(defn reset!
+  "Unconditionally sets atom `a`'s value to `v`, returning `v`."
+  [a v]
   (do
     (send a (list :reset (self) v))
     (receive [reply] (true (first (rest reply))))))
