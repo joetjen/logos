@@ -4,14 +4,19 @@ defmodule Logos.Reader do
   data, via `priv/grammar/logos.aether` (an Aether grammar) and
   `Logos.Reader.Actions` (pure reification, see that module's docs).
 
-  Uses `Ichor`'s compile-time native codegen backend (`use Ichor,
-  grammar:, actions:`), which splices `parse/1`, `tokenize/1`, `run/1,2`,
-  and `run_sequence/2` directly into this module. `grammar:` is resolved
-  relative to *this file's own path* (`lib/logos/reader.ex`), per
-  `Ichor`'s own `__using__/1` macro (documented in `Ichor`'s moduledoc,
-  though the macro itself is `@doc false`) -- `../../priv/grammar/logos.aether`
-  walks back up from `lib/logos/` to the project root, then down into
-  `priv/grammar/`.
+  Delegates to Logos.Reader.Generated (`@moduledoc false`, so it's
+  intentionally absent from these docs), a plain `.ex` file checked into
+  the repo and produced ahead of time by `mix ichor.gen` (see `mix.exs`
+  for the exact regeneration command) rather than spliced in at compile
+  time via `use Ichor`. This is what lets `logos` depend on the small
+  `ichor_runtime` package at runtime and keep the full `ichor` compiler
+  (grammar parsing, analysis, codegen) a `only: :dev, runtime: false`
+  dependency -- `ichor` itself never ships, including in a `mix release`
+  build. Regenerate that module whenever
+  `priv/grammar/logos.aether` changes; nothing here needs to change in
+  step with it since only `run_sequence/2`'s and `tokenize/2`'s
+  signatures are depended on, and both are stable across any grammar
+  edit that doesn't change the reader's own public API.
 
   ## Why `read/1`/`read_all/1` are both built on `run_sequence/2`
 
@@ -36,28 +41,41 @@ defmodule Logos.Reader do
   Both filter out `Logos.Reader.Actions.discard/0` sentinels -- a
   top-level `#_form` datum comment must vanish from the result, not show
   up as a phantom top-level form.
+
+  ## `tokenize/1`
+
+  `Logos.Format` and `Logos.Repl` need the raw, position-preserving
+  token stream (including `:TRIVIA`, i.e. comments/whitespace) rather
+  than reified `Logos.Form.t()` data, so `tokenize/1` re-exports the
+  generated module's own `tokenize/2` directly -- see `Logos.Format`'s
+  own moduledoc for why.
   """
 
-  use Ichor, grammar: "../../priv/grammar/logos.aether", actions: Logos.Reader.Actions
+  alias Logos.Reader.{Actions, Generated}
 
-  alias Logos.Reader.Actions
+  @doc "Tokenizes `source` into the complete, position-preserving raw token stream (including `:TRIVIA`). See `Logos.Format`'s moduledoc for why this exists alongside `read/1`/`read_all/1`."
+  @spec tokenize(String.t()) :: {:ok, [Grammar.VM.Token.t()]} | {:error, term()}
+  def tokenize(source) when is_binary(source), do: Generated.tokenize(source)
 
   @doc """
   Reads exactly the first top-level form out of `source`; anything after
   it is ignored, matching `read-string` semantics.
 
-  `runtime` (optional, defaults to `nil`) is consulted **only** for
-  syntax-quote auto-qualification -- it tells `Logos.Reader.Actions`
-  what the "current defining namespace" is when desugaring a `` ` ``
-  anywhere in the form. Passing `nil` (the default, and what every
-  `runtime`-unaware caller/test still gets) simply skips auto-
-  qualification -- a bare symbol inside a syntax-quote is left
-  unqualified rather than erroring, so `read/1` without a `Runtime`
-  keeps working for every case that doesn't use syntax-quote.
+  `runtime` (optional, defaults to `nil`) serves two purposes: syntax-
+  quote auto-qualification (it tells `Logos.Reader.Actions` what the
+  "current defining namespace" is when desugaring a `` ` `` anywhere in
+  the form), and resolving a `#tag value` tagged literal against
+  `Logos.Runtime`'s `:data_readers` registry (`handle_rule(:tagged_literal,
+  ...)`). Passing `nil` (the default, and what every `runtime`-unaware
+  caller/test still gets) skips auto-qualification gracefully (a bare
+  symbol inside a syntax-quote is left unqualified rather than erroring)
+  but makes reading a tagged literal a hard error -- there's no sensible
+  degraded fallback for "resolve this tag" the way there is for
+  "qualify this symbol."
   """
   @spec read(String.t(), Logos.Runtime.t() | nil) :: {:ok, Logos.Form.t()} | {:error, term()}
   def read(source, runtime \\ nil) when is_binary(source) do
-    with {:ok, forms, _ctx} <- run_sequence(source, nil) do
+    with {:ok, forms, _ctx} <- Generated.run_sequence(source, runtime) do
       case Enum.reject(forms, &(&1 == Actions.discard())) do
         [first | _rest] -> {:ok, Actions.desugar_syntax_quote(first, runtime)}
         [] -> {:error, "no form found in input"}
@@ -69,7 +87,7 @@ defmodule Logos.Reader do
   @spec read_all(String.t(), Logos.Runtime.t() | nil) ::
           {:ok, [Logos.Form.t()]} | {:error, term()}
   def read_all(source, runtime \\ nil) when is_binary(source) do
-    with {:ok, forms, _ctx} <- run_sequence(source, nil) do
+    with {:ok, forms, _ctx} <- Generated.run_sequence(source, runtime) do
       forms = Enum.reject(forms, &(&1 == Actions.discard()))
       {:ok, Enum.map(forms, &Actions.desugar_syntax_quote(&1, runtime))}
     end

@@ -1,0 +1,49 @@
+;; Feature test: not, identity, constantly, complement, inc, dec, mod,
+;; even?/odd?/zero?/pos?/neg?, min/max, comp, partial, apply, str, and
+;; the quot/rem primitives they're built on -- ROADMAP.md's first "basic
+;; numeric/utility functions" tier-1 batch, end to end.
+
+(require '[logos.test :refer [:all]])
+(deftest predicates-and-arithmetic-helpers
+  (do
+    (assert= (not nil) true)
+    (assert= (not 1) false)
+    (assert= (identity 42) 42)
+    (assert= ((constantly 5) 1 2 3) 5)
+    (assert= ((complement zero?) 5) true)
+    (assert= (inc 5) 6)
+    (assert= (dec 5) 4)
+    (assert (zero? 0))
+    (assert (pos? 5))
+    (assert (neg? -5))
+    (assert (even? 4))
+    (assert (odd? 3))))
+(deftest quot-rem-mod
+  (do
+    (assert= (quot 7 2) 3)
+    (assert= (quot -7 2) -3)
+    (assert= (rem 7 2) 1)
+    (assert= (rem -7 2) -1)
+    ;; mod's sign always matches the DIVISOR's, unlike rem (dividend's) --
+    ;; the whole reason mod exists as a separate function from rem.
+    (assert= (mod -7 2) 1)
+    (assert= (mod 7 -2) -1)))
+(deftest min-max
+  (do
+    (assert= (min 3 1 2) 1)
+    (assert= (max 3 1 2) 3)))
+(deftest comp-and-partial
+  (do
+    (assert= ((comp inc inc) 5) 7)
+    (assert= (map (comp inc inc) (list 1 2 3)) (list 3 4 5))
+    (assert= ((partial + 10) 5) 15)
+    (assert= (map (partial + 10) (list 1 2 3)) (list 11 12 13))))
+(deftest apply-and-str
+  (do
+    (assert= (apply + (list 1 2 3)) 6)
+    (assert= (apply + 1 2 (list 3 4)) 10)
+    (defn basic-utilities-test-add3 [a b c] (+ a b c))
+    (assert= (apply basic-utilities-test-add3 (list 1 2 3)) 6)
+    (assert= (str "count: " 3 ", ok? " true) "count: 3, ok? true")
+    (assert= (str nil) "")))
+(run-tests)

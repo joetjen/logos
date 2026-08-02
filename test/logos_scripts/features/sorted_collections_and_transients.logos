@@ -1,0 +1,68 @@
+;; Feature test: `compare`, `sorted-map`/`sorted-map-by`,
+;; `sorted-set`/`sorted-set-by`, `disj`, and transients
+;; (`transient`/`conj!`/`assoc!`/`dissoc!`/`disj!`/`pop!`/`persistent!`).
+
+(require '[logos.test :refer [:all]])
+(deftest compare-orders-numbers-strings-and-vectors
+  (do
+    (assert= (compare 1 2) -1)
+    (assert= (compare "b" "a") 1)
+    (assert= (compare [1 2] [1 2 3]) -1)
+    (assert= (compare nil 1) -1)))
+(deftest disj-removes-from-a-set
+  (do
+    (assert= (disj #{1 2 3} 2) #{1 3})
+    (assert= (disj nil 1) nil)))
+(deftest sorted-map-keeps-entries-ordered
+  (assert= (to-list (sorted-map :c 3 :a 1 :b 2)) (list (list :a 1) (list :b 2) (list :c 3))))
+(deftest sorted-map-get-assoc-dissoc-preserve-order
+  (let [m (sorted-map :b 2 :a 1)]
+    (do
+      (assert= (get m :a) 1)
+      (assert= (to-list (assoc m :aa 99)) (list (list :a 1) (list :aa 99) (list :b 2)))
+      (assert= (to-list (dissoc m :a)) (list (list :b 2))))))
+(deftest sorted-map-is-content-equal-to-a-plain-map
+  (assert (= (sorted-map :a 1 :b 2) {:b 2 :a 1})))
+(deftest sorted-map-keyword-as-function
+  (assert= (:a (sorted-map :a 1 :b 2)) 1))
+(deftest sorted-map-by-uses-a-custom-comparator
+  (assert=
+    (to-list (sorted-map-by (fn [a b] (compare b a)) :a 1 :b 2 :c 3))
+    (list (list :c 3) (list :b 2) (list :a 1))))
+(deftest sorted-set-stays-sorted-through-conj-and-disj
+  (do
+    (assert= (to-list (sorted-set 3 1 2)) (list 1 2 3))
+    (assert= (to-list (conj (sorted-set 1 2 3) 0)) (list 0 1 2 3))
+    (assert= (to-list (disj (sorted-set 1 2 3) 2)) (list 1 3))))
+(deftest sorted-set-is-content-equal-to-a-plain-set
+  (assert (= (sorted-set 1 2 3) #{3 2 1})))
+(deftest sorted-map-and-sorted-set-predicates
+  (do
+    (assert (map? (sorted-map :a 1)))
+    (assert (sorted? (sorted-map :a 1)))
+    (assert (not (sorted? {:a 1})))
+    (assert (set? (sorted-set 1)))
+    (assert (sorted? (sorted-set 1)))
+    (assert (not (sorted? #{1})))))
+(deftest into-a-sorted-set-keeps-it-sorted
+  (assert= (to-list (into (sorted-set 5 1) (list 3 0))) (list 0 1 3 5)))
+(deftest transient-vector-round-trip
+  (assert=
+    (persistent! (pop! (assoc! (conj! (transient [1 2 3]) 4) 0 99)))
+    [99 2 3]))
+(deftest transient-map-round-trip
+  (assert= (persistent! (dissoc! (assoc! (transient {}) :a 1 :b 2) :a)) {:b 2}))
+(deftest transient-set-round-trip
+  (assert= (persistent! (disj! (conj! (transient #{1 2}) 3) 1)) #{2 3}))
+(deftest transient-reads-live-without-persistent
+  (do
+    (assert= (get (transient [1 2 3]) 1) 2)
+    (assert= (count (transient [1 2 3])) 3)
+    (assert (transient? (transient [1])))))
+(deftest transient-mutators-return-the-transient-itself
+  (assert (transient? (conj! (transient [1]) 2))))
+(deftest transient-used-after-persistent-throws
+  (assert-throws
+    :transient-used-after-persistent
+    (let [t (transient [1])] (do (persistent! t) (conj! t 2)))))
+(run-tests)

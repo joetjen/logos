@@ -1,6 +1,6 @@
 defmodule Logos.ReceiveMacroTest do
   @moduledoc """
-  Phase 5: the Lisp-level `receive` macro (`stdlib.lisp`, built over
+  The Lisp-level `receive` macro (`concurrency.logos`, built over
   `receive-match!`). Surface syntax:
 
     (receive [msg]
@@ -9,7 +9,7 @@ defmodule Logos.ReceiveMacroTest do
       ...
       (after timeout-ms default-expr))
 
-  See `stdlib.lisp`'s own "receive (Phase 5)" comment block for the full
+  See `concurrency.logos`'s own `---- receive ----` comment block for the full
   rationale/grammar writeup.
   """
 

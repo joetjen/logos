@@ -7,30 +7,57 @@ defmodule Logos.Printer do
   that requirement -- they print informatively but have no reader syntax
   to read back into.
 
-  Every `Logos.Form.t()` case (the 13-case table in `lib/logos/form.ex`)
+  **One deliberate, narrower exception**: `#inst`/`#uuid` tagged
+  literals (`Logos.DataReaders`, `priv/grammar/logos.aether`'s
+  `tagged_literal` rule) resolve to plain Logos *strings*, not a
+  dedicated value type -- `print/1` has no way to know a given string
+  originated from `#inst "..."` rather than an ordinary `"..."`
+  literal, so it prints back as an ordinary quoted string, not
+  `#inst "..."`. Unlike the `Pid`/`Atom`/`Fn` exemption above (a whole
+  value *type* with no reader syntax at all), this is a narrower,
+  string-specific round-trip gap -- see `test/logos/reader_test.exs`.
+
+  Every `Logos.Form.t()` case (the 14-case table in `lib/logos/form.ex`)
   prints in a shape `Logos.Reader.read/1` can read back to an `==`-equal
   value -- see `test/logos/printer_test.exs` for the actual round-trip
   proofs, one per reader-producible type, including nested/empty
-  collections. The three runtime-only `Logos.Value.t()` cases (`Fn`,
-  `Atom`, `Pid`) print in Clojure's own informative `#<...>` convention
-  instead, deliberately *not* readable back (there is no reader syntax
-  for any of them -- see `Logos.Form.t()`'s own moduledoc).
+  collections. The four runtime-only `Logos.Value.t()` cases (`Fn`,
+  `Atom`, `Pid`, `Transient`) print in Clojure's own informative `#<...>`
+  convention instead, deliberately *not* readable back (there is no
+  reader syntax for any of them -- see `Logos.Form.t()`'s own moduledoc).
+  `SortedMap`/`SortedSet` are a narrower case, same category as
+  `Record` below: real reader-producible shapes (`{...}`/`\#{...}`), just
+  produced by a runtime-only value type rather than the reader itself --
+  they print exactly like an ordinary map/set (in sorted order), reading
+  back as one, never round-tripping to their own sorted type (matching
+  real Clojure).
 
-  ## Known gap: very large/small floats
+  ## Arbitrary-magnitude floats
 
   `Float.to_string/1` (the base of this module's float printing) falls
   back to scientific notation (`"1.0e11"`) once the exponent gets large
-  enough -- and `NUMBER`'s grammar (`priv/grammar/logos.aether`) has no
-  exponent syntax at all, so such a printed float would *not* actually
-  read back. Not fixed here (round-tripping arbitrary-magnitude floats
-  through a grammar with no scientific-notation support would require a
-  grammar change) -- flagged as a known limitation; every float this
-  module's own round-trip tests print stays well inside
-  the range where `Float.to_string/1` never switches to scientific
-  notation.
+  enough, and `NUMBER`'s grammar (`priv/grammar/logos.aether`) reads that
+  notation back (`("e" | "E") ("+" | "-")? DIGIT+`), so a very
+  large/small float round-trips like everything else -- confirmed via
+  `test/logos/printer_test.exs`'s own round-trip proof for `1.0e300` and
+  `1.0e-300`, not just floats that happen to stay inside
+  `Float.to_string/1`'s plain-decimal range.
   """
 
-  alias Logos.{Atom, Char, Fn, Keyword, Pid, Ratio, Symbol, Vector}
+  alias Logos.{
+    Atom,
+    Char,
+    Fn,
+    Keyword,
+    Pid,
+    Ratio,
+    Record,
+    SortedMap,
+    SortedSet,
+    Symbol,
+    Transient,
+    Vector
+  }
 
   @doc "Prints `value` to its textual form."
   @spec print(term()) :: String.t()
@@ -40,6 +67,11 @@ defmodule Logos.Printer do
   def print(n) when is_integer(n), do: Integer.to_string(n)
   def print(n) when is_float(n), do: Float.to_string(n)
   def print(%Ratio{} = r), do: Ratio.to_string(r)
+  # `%Decimal{}` deliberately not aliased (`decimal` the hex package
+  # already exports a bare `Decimal` module of its own) -- see
+  # `Logos.Decimal`'s own moduledoc for why every reference stays fully
+  # qualified.
+  def print(%Decimal{} = d), do: Logos.Decimal.to_string(d)
   def print(s) when is_binary(s), do: print_string(s)
   def print(%Char{} = c), do: Char.to_string(c)
   def print(%Symbol{} = sym), do: Symbol.to_string(sym)
@@ -54,11 +86,36 @@ defmodule Logos.Printer do
 
   def print(%MapSet{} = set), do: "\#{" <> Enum.map_join(set, " ", &print/1) <> "}"
 
+  # Same shape as an ordinary map/set (`{...}`/`\#{...}`), just walked in
+  # `entries`' already-sorted order -- no dedicated reader syntax,
+  # matching real Clojure exactly: `(pr-str (sorted-map :a 1))` also
+  # reads back as an ordinary hash-map, not a sorted one.
+  def print(%SortedMap{entries: entries}) do
+    inner = entries |> Enum.flat_map(fn {k, v} -> [k, v] end) |> Enum.map_join(" ", &print/1)
+    "{" <> inner <> "}"
+  end
+
+  def print(%SortedSet{entries: entries}),
+    do: "\#{" <> Enum.map_join(entries, " ", &print/1) <> "}"
+
   # ---- runtime-only, non-round-trippable ----------------------------------
+
+  # `#type-kw{...}` -- Clojure prints `#user.Point{...}` (a dotted class
+  # name); Logos records are tagged with an ordinary namespaced keyword
+  # (see `Logos.Record`'s moduledoc), so `#type-kw{...}` reusing the
+  # plain-map body above is the natural fit here. No reader syntax reads
+  # this back, matching Clojure (records don't round-trip through
+  # `pr`/`read` without an explicit data reader either).
+  def print(%Record{type: %Keyword{ns: ns, name: name}, fields: fields}) do
+    inner = fields |> Enum.flat_map(fn {k, v} -> [k, v] end) |> Enum.map_join(" ", &print/1)
+    tag = if ns, do: ns <> "/" <> name, else: name
+    "#" <> tag <> "{" <> inner <> "}"
+  end
 
   def print(%Fn{} = f), do: "#<Fn " <> arity_desc(f) <> ">"
   def print(%Atom{pid: pid}), do: "#<Atom " <> inspect(pid) <> ">"
   def print(%Pid{pid: pid}), do: "#<Pid " <> inspect(pid) <> ">"
+  def print(%Transient{}), do: "#<Transient>"
 
   def print(other), do: "#<" <> inspect(other) <> ">"
 

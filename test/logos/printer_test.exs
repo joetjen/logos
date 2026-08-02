@@ -4,8 +4,8 @@ defmodule Logos.PrinterTest do
   alias Logos.{Atom, Char, Fn, Keyword, Pid, Printer, Ratio, Reader, Symbol, Vector}
 
   # Print `value`, read the printed text back, and assert the result is
-  # `==` to `value` -- the round-trip proof DESIGN.md's Printer decision
-  # calls for, for every reader-producible type.
+  # `==` to `value` -- the round-trip proof `Logos.Printer`'s own
+  # moduledoc calls for, for every reader-producible type.
   defp assert_round_trip(value) do
     printed = Printer.print(value)
     assert {:ok, read_back} = Reader.read(printed)
@@ -44,6 +44,19 @@ defmodule Logos.PrinterTest do
       assert_round_trip(0.0)
     end
 
+    # `Float.to_string/1` falls back to scientific notation for very
+    # large/small magnitudes (`"1.0e300"`); `NUMBER`'s grammar
+    # (`priv/grammar/logos.aether`) now reads that notation back, closing
+    # what used to be `Logos.Printer`'s own documented "Known gap" --
+    # this is the actual proof, not just an assumption from the grammar
+    # change alone.
+    test "very large/small floats round-trip via scientific notation" do
+      assert Printer.print(1.0e300) == "1.0e300"
+      assert_round_trip(1.0e300)
+      assert_round_trip(1.0e-300)
+      assert_round_trip(-2.5e30)
+    end
+
     test "ratios (auto-reduced, non-1-denominator)" do
       r = Ratio.new(2, 6)
       assert %Ratio{num: 1, den: 3} = r
@@ -54,6 +67,16 @@ defmodule Logos.PrinterTest do
     test "a ratio that demotes to an integer prints as a plain integer" do
       assert Ratio.new(4, 2) == 2
       assert_round_trip(Ratio.new(4, 2))
+    end
+
+    test "decimals, scale preserved through the round trip" do
+      assert Printer.print(Decimal.new("10.99")) == "10.99M"
+      assert_round_trip(Decimal.new("10.99"))
+      assert_round_trip(Decimal.new("3"))
+      assert_round_trip(Decimal.new("-2.5"))
+      # The trailing zero is part of the round trip -- printing must not
+      # collapse "10.10" to "10.1" (a different, non-`==` %Decimal{}).
+      assert Printer.print(Decimal.new("10.10")) == "10.10M"
     end
   end
 

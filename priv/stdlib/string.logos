@@ -1,0 +1,112 @@
+;; priv/stdlib/string.logos
+;;
+;; `logos.string` -- string manipulation, real Clojure `clojure.string`
+;; semantics and naming throughout. Loaded into every `Logos.Runtime`
+;; (see `Logos.Stdlib`), but -- matching real Clojure's own
+;; `clojure.string` being a separate, explicitly-required namespace, not
+;; part of `clojure.core` -- NOT auto-referred into `logos.core`.
+;; Reachable via `(require '[logos.string :refer [:all]])` or `(require
+;; '[logos.string :as str])` plus `str/upper-case` etc. **The `:as str`
+;; form is worth calling out explicitly**: this namespace's own
+;; `reverse` (string reversal) collides by name with `logos.seq`'s
+;; `reverse` (list reversal) if `:refer [:all]`'d into a namespace that
+;; already has `logos.seq`'s `reverse` in scope (every namespace does,
+;; by default) -- the LATER `require` silently wins. This is not a bug
+;; to work around; it is the exact same footgun real
+;; `(require '[clojure.string :refer :all])` has in real Clojure too
+;; (also over `reverse`), which is why real Clojure code overwhelmingly
+;; prefers `(require '[clojure.string :as str])` for this one namespace
+;; specifically -- do the same here.
+;;
+;; Every function below is a Logos-level wrapper over an `import`ed,
+;; allowlisted Elixir `String.*` function (`Logos.Interop.Allowlist`) --
+;; going through the SAME sandboxing chokepoint `import` itself uses,
+;; never a direct, allowlist-bypassing primitive. `import` interns under
+;; the raw Elixir function's own bare name (e.g. `String.trim_leading`
+;; -> `trim_leading`), so a wrapper is only needed where that raw name
+;; doesn't already match Clojure's own spelling (`trim_leading` ->
+;; `triml`, `starts_with?` -> `starts-with?`, `contains?` -> `includes?`
+;; -- the last renamed specifically to avoid colliding with
+;; `logos.seq`'s own `contains?`, matching why real Clojure's
+;; `clojure.string` is *also* `includes?`, not `contains?`, for the
+;; identical reason against `clojure.core/contains?`). Where the raw
+;; name already matches (`trim`, `reverse`, `capitalize`, `replace`,
+;; `split`), the imported name is used directly with no wrapper.
+;;
+;; `join`/`split-lines`/`blank?` need no interop at all -- pure Logos
+;; over what's already imported/available.
+;;
+;; **No helper here is `^:private`** -- same reasoning as
+;; `logos.set`/`logos.walk`'s own header comments.
+;;
+;; **Every internal cross-call to another var in THIS file -- each
+;; wrapper calling its own raw imported name, `blank?` calling `trim`,
+;; `split-lines` calling `split`, `join` calling itself across its two
+;; arities -- uses a fully-qualified `logos.string/...` reference, never
+;; a bare one.** `logos.string` is deliberately NOT auto-referred into
+;; `logos.core` (see above), so a namespace that only did `(require
+;; '[logos.string :as str])` (no `:refer` -- the very form this file's
+;; own header comment recommends, to dodge the `reverse` collision) has
+;; never pulled e.g. `upcase` into its own unqualified scope, only the
+;; `str/upcase` qualified spelling; a bare `(upcase s)` inside
+;; `upper-case`'s body would then try to resolve against the CALLER's
+;; own scope and fail there, even though the outer `str/upper-case`
+;; call site itself was perfectly correct. See `logos.set`'s own header
+;; comment for the fuller explanation (and the actual smoke-test failure
+;; this class of bug was caught by, across all three of `logos.set`/
+;; `logos.walk`/`logos.string`).
+;;
+;; Deliberately out of scope (real, documented scope trims): `split`
+;; only ever takes a literal string pattern, never a regex -- Logos has
+;; no regex literal syntax to construct one from, unlike real Clojure's
+;; own regex-first `split`/`replace`. `replace-first` (Elixir's
+;; `String.replace/4` needs a keyword-list option Logos code can't
+;; construct), `index-of`/`last-index-of` (no direct Elixir stdlib
+;; equivalent as clean as Java's `.indexOf`), `trim-newline`, `escape`
+;; -- all real Clojure `clojure.string` functions, all skipped as
+;; genuinely niche outside what's built above.
+
+(import 'String.trim)
+(import 'String.reverse)
+(import 'String.capitalize)
+(import 'String.replace)
+(import 'String.split)
+(import 'String.upcase)
+(defn upper-case "Uppercases every character in `s`." [s] (logos.string/upcase s))
+(import 'String.downcase)
+(defn lower-case "Lowercases every character in `s`." [s] (logos.string/downcase s))
+(import 'String.trim_leading)
+(defn triml
+  "Trims whitespace from the left/leading end of `s` only."
+  [s]
+  (logos.string/trim_leading s))
+(import 'String.trim_trailing)
+(defn trimr
+  "Trims whitespace from the right/trailing end of `s` only."
+  [s]
+  (logos.string/trim_trailing s))
+(import 'String.contains?)
+(defn includes? "True if `s` contains `substr`." [s substr] (logos.string/contains? s substr))
+(import 'String.starts_with?)
+(defn starts-with?
+  "True if `s` starts with `prefix`."
+  [s prefix]
+  (logos.string/starts_with? s prefix))
+(import 'String.ends_with?)
+(defn ends-with?
+  "True if `s` ends with `suffix`."
+  [s suffix]
+  (logos.string/ends_with? s suffix))
+(defn blank?
+  "True if `s` is `nil`, empty, or entirely whitespace."
+  [s]
+  (or (nil? s) (= (logos.string/trim s) "")))
+(defn join
+  "Joins `coll`'s elements (stringified via `str`) with `sep` (default
+  `\"\"`) between each pair."
+  ([coll] (logos.string/join "" coll))
+  ([sep coll] (apply str (interpose sep (map str (to-list coll))))))
+(defn split-lines
+  "Splits `s` on newlines."
+  [s]
+  (logos.string/split s "\n"))

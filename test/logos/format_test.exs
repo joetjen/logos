@@ -75,6 +75,31 @@ defmodule Logos.FormatTest do
     test "meta" do
       assert Format.format("^ :private x") == {:ok, "^:private x\n"}
     end
+
+    test "a bare tagged-literal # attaches to its tag" do
+      assert Format.format(~S[# inst "2020-01-01"]) == {:ok, ~S[#inst "2020-01-01"] <> "\n"}
+    end
+  end
+
+  # Regression: a first draft made `#`-attaching a blind text-suffix
+  # check ("does the accumulated line so far end in `#`?"), which also
+  # wrongly matched an ordinary symbol whose own text just happens to end
+  # in `#` (auto-gensym syntax, `g#`/`x#`) -- gluing it to whatever
+  # token followed with no space, corrupting real stdlib source
+  # (`priv/stdlib/core.logos`'s `or` macro) into an unparseable single
+  # token the first time this ran for real. Caught by re-running the
+  # formatter and diffing actual stdlib files before trusting the fix,
+  # not just this synthetic test alone -- kept here as the permanent
+  # regression coverage.
+  describe "auto-gensym symbols (g#/x#) are not mistaken for the # prefix" do
+    test "a gensym symbol keeps its trailing space before the next token" do
+      assert Format.format("(let [g# 1] (cond g# g# true 2))") ==
+               {:ok, "(let [g# 1] (cond g# g# true 2))\n"}
+    end
+
+    test "a gensym symbol immediately before an unquote keeps its space" do
+      assert Format.format("`(let [g# ~x] g#)") == {:ok, "`(let [g# ~x] g#)\n"}
+    end
   end
 
   describe "formatted?/1" do

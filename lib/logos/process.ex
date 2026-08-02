@@ -2,13 +2,13 @@ defmodule Logos.ProcessCrash do
   @moduledoc """
   The Elixir exception a Logos-level process (a `Logos.Fn` thunk running
   under `spawn`/`spawn-link`/`spawn-monitor`) raises when its body's
-  evaluation returns `{:error, reason}` (`Logos.Eval`'s own "something
-  went wrong" convention -- see that module's moduledoc). Deliberately
-  re-raised as a *real* BEAM crash (rather than silently swallowed) so
-  that `link`/`monitor` on the spawning side observe a genuine
-  `:EXIT`/`:DOWN` signal carrying `reason`, exactly like any other
-  process crash: a Logos function erroring is treated as "this process
-  failed," the same as an Elixir process raising.
+  evaluation raises `Logos.EvalError` (`Logos.Eval`'s own primitive-level
+  failure signal -- see that module's moduledoc). Deliberately re-raised
+  as a *real* BEAM crash (rather than silently swallowed) so that
+  `link`/`monitor` on the spawning side observe a genuine `:EXIT`/`:DOWN`
+  signal carrying `reason`, exactly like any other process crash: a
+  Logos function erroring is treated as "this process failed," the same
+  as an Elixir process raising.
   """
   defexception [:reason]
 
@@ -24,7 +24,7 @@ defmodule Logos.Process do
   here is plain Elixir, called from `Logos.Primitives`' `(args, runtime)`
   dispatch against already-evaluated argument values -- none of them need
   macro-hood. (The one related piece that *does* need macro-hood is the
-  Lisp-level `receive` macro in `stdlib.lisp`, since its clauses must
+  Lisp-level `receive` macro in `concurrency.logos`, since its clauses must
   stay unevaluated until a match is found.)
 
   ## `spawn` -- what actually runs
@@ -49,24 +49,25 @@ defmodule Logos.Process do
 
   ### Crash semantics
 
-  If the thunk's evaluation returns `{:error, reason}` (`Logos.Eval`'s
-  ordinary "something went wrong" convention, not a BEAM-level crash by
-  itself), this module converts it into a real `Logos.ProcessCrash` raise
-  so the spawned BEAM process terminates abnormally, exactly the way a
-  real crash would -- `link`/`monitor` on the spawning side see a genuine
-  `:EXIT`/`:DOWN` with that reason, matching real BEAM semantics (a Logos
-  function erroring is conceptually "this process failed", the same as an
-  Elixir process raising). An uncaught Logos-level `(throw ...)`
-  (`Logos.Thrown`, a real Elixir exception with no enclosing `try`) needs
-  no special handling here at all -- it already propagates as an ordinary
-  Elixir exception and crashes the process on its own.
+  If the thunk's evaluation raises `Logos.EvalError` (`Logos.Eval`'s
+  primitive-level failure signal, not a BEAM-level crash by itself),
+  `run_thunk/2` rescues it and re-raises a real `Logos.ProcessCrash`
+  carrying the same `reason` so the spawned BEAM process terminates
+  abnormally, exactly the way a real crash would -- `link`/`monitor` on
+  the spawning side see a genuine `:EXIT`/`:DOWN` with that reason,
+  matching real BEAM semantics (a Logos function erroring is conceptually
+  "this process failed", the same as an Elixir process raising). An
+  uncaught Logos-level `(throw ...)` (`Logos.Thrown`, a real Elixir
+  exception with no enclosing `try`) needs no special handling here at
+  all -- it already propagates as an ordinary Elixir exception and
+  crashes the process on its own.
 
   ## `send` -- what a message can carry
 
   A `send` message can carry *any* `Logos.Value.t()` -- the full set of
   runtime values, which is broader than what the reader can produce from
   source text (`Logos.Form.t()`) -- including a live `%Logos.Fn{}`
-  closure or a `%Logos.Pid{}`/`%Logos.Atom{}`. `stdlib.lisp`'s `swap!`
+  closure or a `%Logos.Pid{}`/`%Logos.Atom{}`. `concurrency.logos`'s `swap!`
   relies on exactly this: it sends its update function as part of the
   message to an atom's owning loop process, which then applies that
   function locally. This module just does a real Erlang `send/2`;
@@ -171,16 +172,20 @@ defmodule Logos.Process do
     [Pid.new(pid), ref_marker(ref)]
   end
 
-  # The body every spawned BEAM process actually runs: evaluate the thunk,
-  # and turn an `{:error, reason}` eval result into a genuine raised
-  # exception so the process crashes for real (see `Logos.ProcessCrash`
-  # moduledoc) instead of just quietly returning an error tuple nobody
-  # inspects.
+  # The body every spawned BEAM process actually runs: evaluate the thunk.
+  # `Eval.apply_fn/3` now raises `Logos.EvalError` directly on failure
+  # (see that module's moduledoc) -- caught here and re-raised as a
+  # `Logos.ProcessCrash` so the spawned process still crashes with
+  # exactly the same `reason` shape `link`/`monitor` observers already
+  # expect, unchanged by that internal propagation-mechanism switch. An
+  # uncaught Logos-level `(throw ...)` (`Logos.Thrown`) still needs no
+  # special handling -- it already propagates as an ordinary Elixir
+  # exception and crashes the process on its own.
   defp run_thunk(%Logos.Fn{} = thunk, runtime) do
-    case Eval.apply_fn(thunk, [], runtime) do
-      {:ok, _value} -> :ok
-      {:error, reason} -> raise Logos.ProcessCrash, reason: reason
-    end
+    Eval.apply_fn(thunk, [], runtime)
+    :ok
+  rescue
+    e in Logos.EvalError -> raise Logos.ProcessCrash, reason: e.reason
   end
 
   # ---- link / unlink / monitor / demonitor ----------------------------------
@@ -270,7 +275,7 @@ defmodule Logos.Process do
   # ---- receive-match! ---------------------------------------------------------
 
   @doc "Indefinite-block form: `(receive-match! pred handler)`."
-  @spec receive_match!(term(), term(), Logos.Runtime.t()) :: {:ok, term()} | {:error, term()}
+  @spec receive_match!(term(), term(), Logos.Runtime.t()) :: term()
   def receive_match!(pred, handler, runtime),
     do: receive_match!(pred, handler, :infinity, nil, runtime)
 
@@ -279,9 +284,9 @@ defmodule Logos.Process do
   `timeout_ms` is either the atom `:infinity` or a non-negative integer of
   milliseconds; `default_fn` (a zero-arg callable) is invoked once the
   deadline passes with nothing having matched -- `nil` means "no default,
-  surface `{:error, :receive_timeout}` instead" (used when a caller wants
-  the indefinite-block behavior but happened to still pass an explicit
-  timeout).
+  raise `Logos.EvalError` with reason `:receive_timeout` instead" (used
+  when a caller wants the indefinite-block behavior but happened to still
+  pass an explicit timeout).
   """
   @spec receive_match!(
           term(),
@@ -289,8 +294,7 @@ defmodule Logos.Process do
           :infinity | non_neg_integer(),
           term() | nil,
           Logos.Runtime.t()
-        ) ::
-          {:ok, term()} | {:error, term()}
+        ) :: term()
   def receive_match!(pred, handler, timeout_ms, default_fn, runtime) do
     do_receive_match(pred, handler, deadline(timeout_ms), default_fn, runtime)
   end
@@ -308,32 +312,27 @@ defmodule Logos.Process do
     receive do
       raw_msg ->
         msg = normalize_message(raw_msg)
+        matched? = call1(pred, msg, runtime)
 
-        case call1(pred, msg, runtime) do
-          {:ok, matched?} ->
-            if Eval.truthy?(matched?) do
-              call1(handler, msg, runtime)
-            else
-              # Resend the original *raw* term, not the normalized `msg` --
-              # normalization is idempotent for ordinary messages but must
-              # stay a pure read-side transform here, since re-sending the
-              # normalized form would mean re-normalizing an
-              # already-normalized `:DOWN`/`:EXIT` list on the next pass
-              # (and it would no longer match the raw-tuple clauses in
-              # `normalize_message/1` at all).
-              Kernel.send(Kernel.self(), raw_msg)
-              do_receive_match(pred, handler, deadline_val, default_fn, runtime)
-            end
-
-          {:error, _} = error ->
-            error
+        if Eval.truthy?(matched?) do
+          call1(handler, msg, runtime)
+        else
+          # Resend the original *raw* term, not the normalized `msg` --
+          # normalization is idempotent for ordinary messages but must
+          # stay a pure read-side transform here, since re-sending the
+          # normalized form would mean re-normalizing an
+          # already-normalized `:DOWN`/`:EXIT` list on the next pass
+          # (and it would no longer match the raw-tuple clauses in
+          # `normalize_message/1` at all).
+          Kernel.send(Kernel.self(), raw_msg)
+          do_receive_match(pred, handler, deadline_val, default_fn, runtime)
         end
     after
       wait ->
         if default_fn do
           call0(default_fn, runtime)
         else
-          {:error, :receive_timeout}
+          raise Logos.EvalError, reason: :receive_timeout
         end
     end
   end

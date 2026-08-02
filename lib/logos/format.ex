@@ -13,9 +13,9 @@ defmodule Logos.Format do
   away entirely (per that module's own moduledoc, it produces plain
   `Logos.Form.t()` data, nothing about source position or trivia
   survives). Reusing that pipeline for a formatter would silently delete
-  every comment in the source. `Logos.Reader.tokenize/1` (spliced into
-  `Logos.Reader` by `use Ichor`, see `Grammar.Native.generate/2`)
-  instead returns the complete,
+  every comment in the source. `Logos.Reader.tokenize/1` (a thin
+  delegate to `mix ichor.gen`'s checked-in generated module -- see
+  `Logos.Reader`'s own moduledoc) instead returns the complete,
   position-preserving `[%Grammar.VM.Token{name, text, line, column}]`
   stream for the *whole* input -- including `:TRIVIA` tokens (the
   grammar's `@skip` token, `(SPACE | COMMENT)*`), which is where every
@@ -86,7 +86,8 @@ defmodule Logos.Format do
             :TILDE,
             :CARET,
             :HASH_QUOTE,
-            :HASH_UNDERSCORE
+            :HASH_UNDERSCORE,
+            :HASH
           ])
 
   @doc "Formats `source`, returning `{:ok, formatted}` or `{:error, reason}` (a tokenizer failure -- malformed input)."
@@ -145,7 +146,18 @@ defmodule Logos.Format do
 
   # Emits any trivia (comments/blank line) that preceded `tok`, then
   # places `tok` itself and updates `depth` for what follows it.
-  defp process_token(analysis, tok, lines, cur, depth, _suppress) do
+  # `suppress` (threaded in from the *previous* token's own
+  # `suppress_next`) is `true` exactly when the previous token was an
+  # opening delimiter or a reader-macro prefix (`@prefix` -- includes
+  # `HASH`, the new bare `#` tagged-literal prefix) -- consulted by
+  # `place_token/7` so e.g. `#inst` places with no space, without relying
+  # on `attaches_tight?/1`'s text-suffix heuristic alone: that heuristic
+  # can't tell "the previous token *was* a bare `#` prefix" apart from
+  # "the previous token was an ordinary symbol whose *text* happens to
+  # end in `#`" (auto-gensym syntax, `g#`/`x#`) -- purely text-based
+  # matching on a trailing `#` would wrongly glue `g#` to whatever
+  # follows it too.
+  defp process_token(analysis, tok, lines, cur, depth, suppress) do
     {lines, cur} = emit_trailing_comment(analysis, lines, cur, depth)
     {lines, cur} = emit_standalone_comments(analysis, lines, cur, depth)
     lines = maybe_blank_line(analysis, lines, cur)
@@ -154,7 +166,7 @@ defmodule Logos.Format do
     is_open = MapSet.member?(@open, tok.name)
     is_prefix = MapSet.member?(@prefix, tok.name)
 
-    {cur, lines, depth} = place_token(tok, is_close, analysis, lines, cur, depth)
+    {cur, lines, depth} = place_token(tok, is_close, suppress, analysis, lines, cur, depth)
 
     depth = if is_open, do: depth + 1, else: depth
     suppress_next = is_open or is_prefix
@@ -166,37 +178,38 @@ defmodule Logos.Format do
   # line (comment/blank line just emitted) -- the new token always starts
   # fresh at the current depth's indent (dedented by one level first, for
   # a closing delimiter forced onto its own line by a preceding comment).
-  defp place_token(tok, true, _analysis, lines, "", depth) do
+  defp place_token(tok, true, _suppress, _analysis, lines, "", depth) do
     new_depth = max(depth - 1, 0)
     {indent(new_depth) <> tok.text, lines, new_depth}
   end
 
-  defp place_token(tok, false, _analysis, lines, "", depth) do
+  defp place_token(tok, false, _suppress, _analysis, lines, "", depth) do
     {indent(depth) <> tok.text, lines, depth}
   end
 
   # `cur != ""` -- continuing whatever line is already in progress.
-  defp place_token(tok, true, _analysis, lines, cur, depth) do
+  defp place_token(tok, true, _suppress, _analysis, lines, cur, depth) do
     {cur <> tok.text, lines, max(depth - 1, 0)}
   end
 
   # Source had a newline between these two siblings -- respect that
   # choice rather than reflowing, and reindent it to the current depth.
-  defp place_token(tok, false, %{newline?: true}, lines, cur, depth) do
+  defp place_token(tok, false, _suppress, %{newline?: true}, lines, cur, depth) do
     {indent(depth) <> tok.text, push(lines, cur), depth}
   end
 
   # No newline in source: keep siblings on one line, one space apart
   # (or none, right after an opening delimiter/prefix -- see
-  # `attaches_tight?/1`).
-  defp place_token(tok, false, _analysis, lines, cur, depth) do
-    sep = if attaches_tight?(cur), do: "", else: " "
+  # `suppress`/`attaches_tight?/1`).
+  defp place_token(tok, false, suppress, _analysis, lines, cur, depth) do
+    sep = if suppress or attaches_tight?(cur), do: "", else: " "
     {cur <> sep <> tok.text, lines, depth}
   end
 
   # No space right after an opening delimiter or a reader-macro prefix --
-  # cheap heuristic based on `cur`'s last byte rather than threading a
-  # separate "previous token category" value through every clause above.
+  # cheap heuristic based on `cur`'s last byte, covering every case
+  # *except* a bare `#` (see `process_token/6`'s own comment for why that
+  # one needs the precise `suppress` signal instead of a text guess).
   defp attaches_tight?(cur) do
     String.ends_with?(cur, "(") or String.ends_with?(cur, "[") or String.ends_with?(cur, "{") or
       String.ends_with?(cur, "'") or String.ends_with?(cur, "`") or String.ends_with?(cur, "~") or

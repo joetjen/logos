@@ -13,7 +13,7 @@ defmodule Logos.RuntimeTest do
     assert Namespace.get_var_value(rt2, "user", "only-in-rt1") == :error
   end
 
-  test "new/1 starts in namespace user, per DESIGN.md section 5" do
+  test "new/1 starts in namespace user" do
     rt = Runtime.new()
     assert Runtime.current_ns(rt) == "user"
   end
@@ -38,6 +38,18 @@ defmodule Logos.RuntimeTest do
     assert a != b
     assert String.starts_with?(a, "G__")
     assert String.starts_with?(b, "G__")
+  end
+
+  describe "load_paths/1" do
+    test "defaults to [] when :load_paths isn't passed to new/1" do
+      rt = Runtime.new()
+      assert Runtime.load_paths(rt) == []
+    end
+
+    test "reflects the :load_paths opt passed to new/1" do
+      rt = Runtime.new(load_paths: ["lib", "priv/stdlib"])
+      assert Runtime.load_paths(rt) == ["lib", "priv/stdlib"]
+    end
   end
 
   describe "circular-require detection (loading set)" do

@@ -1,6 +1,4 @@
 defmodule Mix.Tasks.Logos.Format do
-  @shortdoc "Formats Logos source files"
-
   @moduledoc """
   Formats Logos source files, or checks that they're already formatted.
   Built on `Logos.Format`, which formats from Ichor's raw token stream
@@ -10,9 +8,9 @@ defmodule Mix.Tasks.Logos.Format do
 
   ## Usage
 
-      mix logos.format path/to/file.lisp path/to/other.lisp
-      mix logos.format "lib/**/*.lisp"
-      mix logos.format --check-formatted path/to/file.lisp
+      mix logos.format path/to/file.logos path/to/other.logos
+      mix logos.format "lib/**/*.logos"
+      mix logos.format --check-formatted path/to/file.logos
 
   Each argument is expanded as a glob (`Path.wildcard/1`) -- a plain
   literal path (no glob metacharacters) still works, since `Path.wildcard/1`
@@ -32,6 +30,8 @@ defmodule Mix.Tasks.Logos.Format do
   """
 
   use Mix.Task
+
+  @shortdoc "Formats Logos source files"
 
   @impl Mix.Task
   def run(argv) do

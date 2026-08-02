@@ -65,10 +65,10 @@ cheatsheet, see [LOGOS_CHEATSHEET.md](language/LOGOS_CHEATSHEET.md).
 | Task | Code |
 |---|---|
 | Start a local REPL | `mix logos.repl` |
-| Run a script file | `mix logos.run path/to/script.lisp arg1 arg2` |
+| Run a script file | `mix logos.run path/to/script.logos arg1 arg2` |
 | Run an inline expression | `mix logos.run -e "(+ 1 2)"` |
-| Format files in place | `mix logos.format "lib/**/*.lisp"` |
-| Check formatting (CI) | `mix logos.format --check-formatted "lib/**/*.lisp"` |
+| Format files in place | `mix logos.format "lib/**/*.logos"` |
+| Check formatting (CI) | `mix logos.format --check-formatted "lib/**/*.logos"` |
 | Attach a remote REPL | `mix logos.remsh --sname r1 --cookie secret --target host@node --runtime my-runtime` |
 | Register a runtime for `logos.remsh` | `Logos.Runtime.Registry.register("my-runtime", runtime)` |
 
@@ -79,6 +79,6 @@ cheatsheet, see [LOGOS_CHEATSHEET.md](language/LOGOS_CHEATSHEET.md).
 | `{:ok, value, env}` | success |
 | `{:error, {:unbound_symbol, name}}` | symbol has no binding |
 | `{:error, {:not_a_number, args}}` | arithmetic primitive got a non-number |
-| `{:error, {:arity_mismatch, got, expected}}` | wrong number of args to a Logos fn |
+| `{:error, {:arity_mismatch, got, expected_shapes}}` | wrong number of args to a Logos fn -- `expected_shapes` is a list, one entry per `fn` clause (more than one for a multi-arity `fn`): an integer for a fixed-arity clause, `{:at_least, n}` for a variadic one |
 | `{:error, {:uncaught_throw, tag, value}}` | a `(throw ...)` escaped every `try` |
 | `{:error, {:not_callable, value}}` | tried to call something that isn't a Fn/primitive |

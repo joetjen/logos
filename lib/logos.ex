@@ -10,13 +10,13 @@ defmodule Logos do
   visibility comes entirely from `runtime`.
 
   `new_runtime/1` is a one-call convenience: a fresh `Logos.Runtime.new/1`
-  with `Logos.Stdlib.load!/1` (real `stdlib.lisp` dogfooding) already
+  with `Logos.Stdlib.load!/1` (real `priv/stdlib/*.logos` dogfooding) already
   applied, ready to `eval_string` against.
   """
 
   alias Logos.{Env, Eval, Macroexpand, Reader, Runtime, Stdlib}
 
-  @doc "A fresh `Logos.Runtime`, bootstrapped with the Elixir-implemented primitives and `stdlib.lisp` (the Lisp-level standard library built on top of those primitives) already loaded into `logos.core`, starting in namespace `user`."
+  @doc "A fresh `Logos.Runtime`, bootstrapped with the Elixir-implemented primitives and `priv/stdlib/*.logos` (the Lisp-level standard library built on top of those primitives) already loaded into `logos.core`, starting in namespace `user`."
   @spec new_runtime(keyword()) :: Runtime.t()
   def new_runtime(opts \\ []) do
     opts
@@ -41,7 +41,7 @@ defmodule Logos do
     with {:ok, form} <- Reader.read(source, runtime) do
       expanded = Macroexpand.expand(form, Env.bound_names(env), runtime)
 
-      case eval_catching_throws(expanded, env, runtime) do
+      case eval_catching_errors(expanded, env, runtime) do
         {:ok, value} -> {:ok, value, env}
         {:error, _} = error -> error
       end
@@ -72,7 +72,7 @@ defmodule Logos do
       Enum.reduce_while(forms, {:ok, nil, env}, fn form, {:ok, _prev_value, env} ->
         expanded = Macroexpand.expand(form, Env.bound_names(env), runtime)
 
-        case eval_catching_throws(expanded, env, runtime) do
+        case eval_catching_errors(expanded, env, runtime) do
           {:ok, value} -> {:cont, {:ok, value, env}}
           {:error, _} = error -> {:halt, error}
         end
@@ -81,12 +81,17 @@ defmodule Logos do
   end
 
   # Converts an uncaught `Logos.Thrown` (a `(throw ...)` with no
-  # enclosing `try`/matching `catch`) into an `{:error, _}` tuple at the
+  # enclosing `try`/matching `catch`) or `Logos.EvalError` (a
+  # primitive-level failure with no enclosing `try`/matching `catch` --
+  # see `Logos.Eval`'s moduledoc) into an `{:error, _}` tuple at the
   # outermost boundary, so `Logos.eval_string/3` never raises for
-  # ordinary Logos-level throws -- see `Logos.Eval`'s moduledoc.
-  defp eval_catching_throws(form, env, runtime) do
-    Eval.eval(form, env, runtime)
+  # ordinary Logos-level failures -- the public API's contract is
+  # completely unaffected by `Logos.Eval`/`Logos.Primitives`' internal
+  # switch to raise/rescue.
+  defp eval_catching_errors(form, env, runtime) do
+    {:ok, Eval.eval(form, env, runtime)}
   rescue
     e in Logos.Thrown -> {:error, {:uncaught_throw, e.tag, e.value}}
+    e in Logos.EvalError -> {:error, e.reason}
   end
 end

@@ -1,0 +1,28 @@
+;; Feature test: spawn/send/receive (real BEAM processes and message
+;; passing) and atoms (a stateful loop process wrapped as a mutable
+;; reference cell).
+
+(require '[logos.test :refer [:all]])
+(deftest spawn-send-receive-echo
+  (do
+    (def concurrency-test-echo
+      (spawn (fn []
+          (receive [msg]
+            (true (send (first (rest msg)) (list :echo (first msg))))))))
+    (send concurrency-test-echo (list :ping (self)))
+    (assert= (receive [reply] (true reply)) (list :echo :ping))))
+(deftest atom-lifecycle
+  (do
+    (def concurrency-test-counter (atom 0))
+    (assert= (deref concurrency-test-counter) 0)
+    (assert= (swap! concurrency-test-counter (fn [n] (+ n 1))) 1)
+    (assert= (swap! concurrency-test-counter (fn [n] (+ n 1))) 2)
+    (assert= (reset! concurrency-test-counter 100) 100)
+    (assert= (deref concurrency-test-counter) 100)))
+(deftest receive-after-timeout
+  ;; A message that will never arrive times out and runs the default
+  ;; expression instead of blocking forever.
+  (assert=
+    (receive [msg] ((= msg :never-sent) :unreachable) (after 20 :timed-out))
+    :timed-out))
+(run-tests)

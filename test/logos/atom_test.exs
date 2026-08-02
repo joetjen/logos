@@ -1,10 +1,10 @@
 defmodule Logos.AtomTest do
   @moduledoc """
-  Phase 5: `atom`/`deref`/`swap!`/`reset!` -- ordinary Lisp functions
-  (`stdlib.lisp`) built on `spawn`/`send`/`receive`, per DESIGN.md section
-  7. The concurrent `swap!` race test is the real point of this file:
-  DESIGN.md's explicit framing is that `swap!`'s update function travels
-  as the message and is applied *inside the atom's own process*, so BEAM's
+  `atom`/`deref`/`swap!`/`reset!` -- ordinary Lisp functions
+  (`concurrency.logos`) built on `spawn`/`send`/`receive`. The concurrent
+  `swap!` race test is the real point of this file: `swap!`'s update
+  function travels as the message and is applied *inside the atom's own
+  process*, so BEAM's
   one-message-at-a-time guarantee gives correct atomicity "for free" --
   a broken/racy implementation (e.g. read-then-write split across two
   messages, or a shared mutable Elixir Agent misused) would show up here

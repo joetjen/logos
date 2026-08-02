@@ -1,7 +1,7 @@
 defmodule Logos.ProcessTest do
   @moduledoc """
-  Phase 5: `Logos.Process` (the DESIGN.md section 7 primitive family) --
-  real multi-process scenarios, not single-process pantomimes. Every test
+  `Logos.Process`'s concurrency primitive family -- real multi-process
+  scenarios, not single-process pantomimes. Every test
   here spawns a genuine BEAM process via the Logos-level `spawn`/
   `spawn-link`/`spawn-monitor` primitives and proves cross-process
   behavior (a real message arriving, a real link/monitor firing) by
@@ -121,6 +121,53 @@ defmodule Logos.ProcessTest do
       assert %Logos.Keyword{name: "process"} = kind
       assert reported_pid == worker_pid
       refute is_nil(reason)
+    end
+
+    test "normal-exit? distinguishes a clean exit from a crash -- (= reason :normal) cannot" do
+      runtime = rt()
+      env = Logos.Env.new()
+
+      # A `:DOWN` reason is a raw Elixir term: the bare atom `:normal` on
+      # a clean exit. `:normal` in Logos SOURCE reads as a `Logos.Keyword`
+      # struct, a different, never-`==` type -- `(= reason :normal)`
+      # would be false even for a genuinely clean exit, which is exactly
+      # why `normal-exit?` exists (see `Logos.Primitives`). `down-reason`
+      # destructures `(:DOWN ref :process pid reason)` step by step via
+      # `let`, rather than one deeply-nested `first`/`rest` chain, purely
+      # for this test's own readability.
+      down_reason_defn = """
+      (defn process-test-down-reason [msg]
+        (let [after-tag (rest msg)
+            after-ref (rest after-tag)
+            after-kind (rest after-ref)
+            after-pid (rest after-kind)]
+          (first after-pid)))
+      """
+
+      {:ok, _, env} = run(down_reason_defn, runtime, env)
+      {:ok, _, env} = run("(def sm-ok (spawn-monitor (fn [] :done)))", runtime, env)
+
+      {:ok, _, env} =
+        run(
+          "(def ok-reason (receive [msg] (true (process-test-down-reason msg))))",
+          runtime,
+          env
+        )
+
+      assert {:ok, true, env} = run("(normal-exit? ok-reason)", runtime, env)
+      assert {:ok, false, env} = run("(= ok-reason :normal)", runtime, env)
+
+      {:ok, _, env} =
+        run("(def sm-crash (spawn-monitor (fn [] (totally-unbound-thing))))", runtime, env)
+
+      {:ok, _, env} =
+        run(
+          "(def crash-reason (receive [msg] (true (process-test-down-reason msg))))",
+          runtime,
+          env
+        )
+
+      assert {:ok, false, _} = run("(normal-exit? crash-reason)", runtime, env)
     end
   end
 

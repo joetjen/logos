@@ -1,0 +1,46 @@
+;; Feature test: defmulti/defmethod, real Clojure multimethod semantics
+;; -- dispatch on an arbitrary function's result, :default fallback,
+;; multi-argument dispatch, methods registered after first use, and
+;; unqualified reachability from a fresh namespace.
+
+(require '[logos.test :refer [:all]])
+(deftest basic-dispatch
+  (do
+    (defmulti multimethod-test-area :type)
+    (defmethod multimethod-test-area :circle [shape]
+      (* 3 (:radius shape) (:radius shape)))
+    (defmethod multimethod-test-area :square [shape]
+      (* (:side shape) (:side shape)))
+    (assert= (multimethod-test-area {:type :circle :radius 2}) 12)
+    (assert= (multimethod-test-area {:type :square :side 3}) 9)))
+(deftest default-fallback
+  (do
+    (defmulti multimethod-test-lang :lang)
+    (defmethod multimethod-test-lang :en [x] "hello")
+    (defmethod multimethod-test-lang :default [x] "?")
+    (assert= (multimethod-test-lang {:lang :en}) "hello")
+    (assert= (multimethod-test-lang {:lang :fr}) "?")))
+(deftest no-match-throws
+  (do
+    (defmulti multimethod-test-no-match (fn [x] x))
+    (defmethod multimethod-test-no-match :a [x] :got-a)
+    (assert-throws :no-method-for-dispatch-value (multimethod-test-no-match :b))))
+(deftest multi-arg-dispatch
+  (do
+    (defmulti multimethod-test-multi-arg (fn [a b] (list (:type a) (:type b))))
+    (defmethod multimethod-test-multi-arg (list :circle :circle) [a b] :both-circles)
+    (assert=
+      (multimethod-test-multi-arg {:type :circle} {:type :circle})
+      :both-circles)))
+(deftest late-method-registration
+  (do
+    (defmulti multimethod-test-late (fn [x] x))
+    (defmethod multimethod-test-late :a [x] :now-works)
+    (assert= (multimethod-test-late :a) :now-works)))
+(deftest fresh-namespace-unqualified
+  (do
+    (ns multimethod-test.fresh-ns)
+    (defmulti multimethod-test-fresh-ns-mm :type)
+    (defmethod multimethod-test-fresh-ns-mm :x [v] :matched-x)
+    (assert= (multimethod-test-fresh-ns-mm {:type :x}) :matched-x)))
+(run-tests)

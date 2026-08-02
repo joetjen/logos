@@ -45,7 +45,7 @@ defmodule Logos.Macroexpand do
   *macro*, not a special form; it doesn't need its own case here because
   by the time the walker's fixed-point recursion re-expands a `let`
   call's own expansion, that expansion is built from real `fn`s (see
-  `stdlib.lisp`), so the `fn` case below picks its bindings up for free,
+  `core.logos`), so the `fn` case below picks its bindings up for free,
   exactly the way `let`'s macro-based design intends.
 
   Before treating a list's head symbol as a possible macro call,
@@ -150,14 +150,18 @@ defmodule Logos.Macroexpand do
   # Calls the macro function with the raw, unevaluated rest of the form
   # (never the evaluated args) plus the implicit `&form`/`&env` bindings;
   # a failure inside the macro function is surfaced as a real exception
-  # since macroexpansion has no `{:error, _}`-tuple convention of its own.
+  # since macroexpansion has no `{:error, _}`-tuple convention of its own
+  # -- `Eval.apply_macro_fn/4` now raises `Logos.EvalError` directly on a
+  # primitive-level failure (see `Logos.Eval`'s moduledoc), rescued here
+  # and re-raised as `Logos.MacroError` so this module's own public
+  # failure shape (`reason`/`form`) is unaffected by that internal
+  # propagation-mechanism switch.
   defp apply_macro(macro_fn, [_head | raw_args] = form, locals, runtime) do
     extra = %{"&form" => form, "&env" => locals}
 
-    case Eval.apply_macro_fn(macro_fn, raw_args, extra, runtime) do
-      {:ok, expansion} -> expansion
-      {:error, reason} -> raise Logos.MacroError, reason: reason, form: [macro_fn | raw_args]
-    end
+    Eval.apply_macro_fn(macro_fn, raw_args, extra, runtime)
+  rescue
+    e in Logos.EvalError -> raise Logos.MacroError, reason: e.reason, form: [macro_fn | raw_args]
   end
 
   # ---- tree walk: recurse into children once a position is a fixed point -----

@@ -39,7 +39,7 @@ defmodule Logos.MacroexpandTest do
     assert twice == form
   end
 
-  describe "real macro expansion (defmacro bootstrap via stdlib.lisp)" do
+  describe "real macro expansion (defmacro bootstrap via core.logos)" do
     test "if expands to a cond call and evaluates correctly" do
       runtime = new_rt()
       env = Env.new()
@@ -47,7 +47,7 @@ defmodule Logos.MacroexpandTest do
       {:ok, form} = Reader.read("(if true 1 2)")
       expanded = Macroexpand.expand(form, locals, runtime)
       assert match?([%Logos.Symbol{name: "cond"} | _], expanded)
-      assert {:ok, 1} = Logos.Eval.eval(expanded, env, runtime)
+      assert 1 = Logos.Eval.eval(expanded, env, runtime)
     end
 
     test "a user-defined macro via defmacro is recognized and expanded" do
@@ -65,7 +65,7 @@ defmodule Logos.MacroexpandTest do
       {:ok, form} = Reader.read("(my-macro-test (1 2 3))")
       expanded = Macroexpand.expand(form, locals, runtime)
       assert match?([%Logos.Symbol{name: "quote"}, [1, 2, 3]], expanded)
-      assert {:ok, [1, 2, 3]} = Logos.Eval.eval(expanded, env, runtime)
+      assert [1, 2, 3] = Logos.Eval.eval(expanded, env, runtime)
     end
 
     test "macroexpansion happens before evaluation, so an unevaluated macro arg is never eval'd as a call" do
