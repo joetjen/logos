@@ -132,6 +132,64 @@ defmodule Logos.Reader.Generated do
       end
     end
 
+    def lex_expr__6(input) do
+      case input do
+        <<";", rest::binary>> -> {:ok, ";", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__10(input) do
+      case input do
+        <<"\n", rest::binary>> -> {:ok, "\n", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__9(input) do
+      Tokenizer.not_pred_char(&lex_expr__10/1, input)
+    end
+
+    def lex_expr__11(input) do
+      case input do
+        <<c::utf8, rest::binary>> -> {:ok, <<c::utf8>>, rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__8(input0) do
+      with {:ok, t0, rest0} <- lex_expr__9(input0), {:ok, t1, rest1} <- lex_expr__11(rest0) do
+        {:ok, t0 <> t1, rest1}
+      else
+        :fail -> :fail
+      end
+    end
+
+    def lex_expr__7(input) do
+      Tokenizer.star_char(&lex_expr__8/1, input)
+    end
+
+    def lex_expr__13(input) do
+      case input do
+        <<"\n", rest::binary>> -> {:ok, "\n", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__12(input) do
+      Tokenizer.opt_char(&lex_expr__13/1, input)
+    end
+
+    def lex_token__COMMENT(input0) do
+      with {:ok, t0, rest0} <- lex_expr__6(input0),
+           {:ok, t1, rest1} <- lex_expr__7(rest0),
+           {:ok, t2, rest2} <- lex_expr__12(rest1) do
+        {:ok, t0 <> t1 <> t2, rest2}
+      else
+        :fail -> :fail
+      end
+    end
+
     def lex_token__LBRACKET(input) do
       case input do
         <<"[", rest::binary>> -> {:ok, "[", rest}
@@ -230,51 +288,6 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def lex_expr__8(input) do
-      case input do
-        <<"-", rest::binary>> -> {:ok, "-", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__7(input) do
-      Tokenizer.opt_char(&lex_expr__8/1, input)
-    end
-
-    def lex_expr__10(input) do
-      lex_token__DIGIT(input)
-    end
-
-    def lex_expr__9(input) do
-      Tokenizer.plus_char(&lex_expr__10/1, input)
-    end
-
-    def lex_expr__11(input) do
-      case input do
-        <<"/", rest::binary>> -> {:ok, "/", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__13(input) do
-      lex_token__DIGIT(input)
-    end
-
-    def lex_expr__12(input) do
-      Tokenizer.plus_char(&lex_expr__13/1, input)
-    end
-
-    def lex_expr__6(input0) do
-      with {:ok, t0, rest0} <- lex_expr__7(input0),
-           {:ok, t1, rest1} <- lex_expr__9(rest0),
-           {:ok, t2, rest2} <- lex_expr__11(rest1),
-           {:ok, t3, rest3} <- lex_expr__12(rest2) do
-        {:ok, t0 <> t1 <> t2 <> t3, rest3}
-      else
-        :fail -> :fail
-      end
-    end
-
     def lex_expr__16(input) do
       case input do
         <<"-", rest::binary>> -> {:ok, "-", rest}
@@ -294,112 +307,157 @@ defmodule Logos.Reader.Generated do
       Tokenizer.plus_char(&lex_expr__18/1, input)
     end
 
-    def lex_expr__21(input) do
-      case input do
-        <<".", rest::binary>> -> {:ok, ".", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__23(input) do
-      lex_token__DIGIT(input)
-    end
-
-    def lex_expr__22(input) do
-      Tokenizer.plus_char(&lex_expr__23/1, input)
-    end
-
-    def lex_expr__20(input0) do
-      with {:ok, t0, rest0} <- lex_expr__21(input0), {:ok, t1, rest1} <- lex_expr__22(rest0) do
-        {:ok, t0 <> t1, rest1}
-      else
-        :fail -> :fail
-      end
-    end
-
     def lex_expr__19(input) do
-      Tokenizer.opt_char(&lex_expr__20/1, input)
-    end
-
-    def lex_expr__27(input) do
       case input do
-        <<"e", rest::binary>> -> {:ok, "e", rest}
+        <<"/", rest::binary>> -> {:ok, "/", rest}
         _ -> :fail
       end
     end
 
-    def lex_expr__28(input) do
-      case input do
-        <<"E", rest::binary>> -> {:ok, "E", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__26(input) do
-      Tokenizer.first_char_match([&lex_expr__27/1, &lex_expr__28/1], input)
-    end
-
-    def lex_expr__31(input) do
-      case input do
-        <<"+", rest::binary>> -> {:ok, "+", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__32(input) do
-      case input do
-        <<"-", rest::binary>> -> {:ok, "-", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__30(input) do
-      Tokenizer.first_char_match([&lex_expr__31/1, &lex_expr__32/1], input)
-    end
-
-    def lex_expr__29(input) do
-      Tokenizer.opt_char(&lex_expr__30/1, input)
-    end
-
-    def lex_expr__34(input) do
+    def lex_expr__21(input) do
       lex_token__DIGIT(input)
     end
 
-    def lex_expr__33(input) do
-      Tokenizer.plus_char(&lex_expr__34/1, input)
-    end
-
-    def lex_expr__25(input0) do
-      with {:ok, t0, rest0} <- lex_expr__26(input0),
-           {:ok, t1, rest1} <- lex_expr__29(rest0),
-           {:ok, t2, rest2} <- lex_expr__33(rest1) do
-        {:ok, t0 <> t1 <> t2, rest2}
-      else
-        :fail -> :fail
-      end
-    end
-
-    def lex_expr__24(input) do
-      Tokenizer.opt_char(&lex_expr__25/1, input)
-    end
-
-    def lex_expr__36(input) do
-      case input do
-        <<"M", rest::binary>> -> {:ok, "M", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__35(input) do
-      Tokenizer.opt_char(&lex_expr__36/1, input)
+    def lex_expr__20(input) do
+      Tokenizer.plus_char(&lex_expr__21/1, input)
     end
 
     def lex_expr__14(input0) do
       with {:ok, t0, rest0} <- lex_expr__15(input0),
            {:ok, t1, rest1} <- lex_expr__17(rest0),
            {:ok, t2, rest2} <- lex_expr__19(rest1),
-           {:ok, t3, rest3} <- lex_expr__24(rest2),
-           {:ok, t4, rest4} <- lex_expr__35(rest3) do
+           {:ok, t3, rest3} <- lex_expr__20(rest2) do
+        {:ok, t0 <> t1 <> t2 <> t3, rest3}
+      else
+        :fail -> :fail
+      end
+    end
+
+    def lex_expr__24(input) do
+      case input do
+        <<"-", rest::binary>> -> {:ok, "-", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__23(input) do
+      Tokenizer.opt_char(&lex_expr__24/1, input)
+    end
+
+    def lex_expr__26(input) do
+      lex_token__DIGIT(input)
+    end
+
+    def lex_expr__25(input) do
+      Tokenizer.plus_char(&lex_expr__26/1, input)
+    end
+
+    def lex_expr__29(input) do
+      case input do
+        <<".", rest::binary>> -> {:ok, ".", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__31(input) do
+      lex_token__DIGIT(input)
+    end
+
+    def lex_expr__30(input) do
+      Tokenizer.plus_char(&lex_expr__31/1, input)
+    end
+
+    def lex_expr__28(input0) do
+      with {:ok, t0, rest0} <- lex_expr__29(input0), {:ok, t1, rest1} <- lex_expr__30(rest0) do
+        {:ok, t0 <> t1, rest1}
+      else
+        :fail -> :fail
+      end
+    end
+
+    def lex_expr__27(input) do
+      Tokenizer.opt_char(&lex_expr__28/1, input)
+    end
+
+    def lex_expr__35(input) do
+      case input do
+        <<"e", rest::binary>> -> {:ok, "e", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__36(input) do
+      case input do
+        <<"E", rest::binary>> -> {:ok, "E", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__34(input) do
+      Tokenizer.first_char_match([&lex_expr__35/1, &lex_expr__36/1], input)
+    end
+
+    def lex_expr__39(input) do
+      case input do
+        <<"+", rest::binary>> -> {:ok, "+", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__40(input) do
+      case input do
+        <<"-", rest::binary>> -> {:ok, "-", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__38(input) do
+      Tokenizer.first_char_match([&lex_expr__39/1, &lex_expr__40/1], input)
+    end
+
+    def lex_expr__37(input) do
+      Tokenizer.opt_char(&lex_expr__38/1, input)
+    end
+
+    def lex_expr__42(input) do
+      lex_token__DIGIT(input)
+    end
+
+    def lex_expr__41(input) do
+      Tokenizer.plus_char(&lex_expr__42/1, input)
+    end
+
+    def lex_expr__33(input0) do
+      with {:ok, t0, rest0} <- lex_expr__34(input0),
+           {:ok, t1, rest1} <- lex_expr__37(rest0),
+           {:ok, t2, rest2} <- lex_expr__41(rest1) do
+        {:ok, t0 <> t1 <> t2, rest2}
+      else
+        :fail -> :fail
+      end
+    end
+
+    def lex_expr__32(input) do
+      Tokenizer.opt_char(&lex_expr__33/1, input)
+    end
+
+    def lex_expr__44(input) do
+      case input do
+        <<"M", rest::binary>> -> {:ok, "M", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__43(input) do
+      Tokenizer.opt_char(&lex_expr__44/1, input)
+    end
+
+    def lex_expr__22(input0) do
+      with {:ok, t0, rest0} <- lex_expr__23(input0),
+           {:ok, t1, rest1} <- lex_expr__25(rest0),
+           {:ok, t2, rest2} <- lex_expr__27(rest1),
+           {:ok, t3, rest3} <- lex_expr__32(rest2),
+           {:ok, t4, rest4} <- lex_expr__43(rest3) do
         {:ok, t0 <> t1 <> t2 <> t3 <> t4, rest4}
       else
         :fail -> :fail
@@ -407,10 +465,10 @@ defmodule Logos.Reader.Generated do
     end
 
     def lex_token__NUMBER(input) do
-      Tokenizer.first_char_match([&lex_expr__6/1, &lex_expr__14/1], input)
+      Tokenizer.first_char_match([&lex_expr__14/1, &lex_expr__22/1], input)
     end
 
-    def lex_expr__37(input) do
+    def lex_expr__45(input) do
       case input do
         <<c::utf8, rest::binary>> ->
           if Tokenizer.in_ranges?(c, [
@@ -437,15 +495,15 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def lex_expr__38(input) do
+    def lex_expr__46(input) do
       lex_token__ALPHA(input)
     end
 
     def lex_token__SYMBOL_START(input) do
-      Tokenizer.first_char_match([&lex_expr__37/1, &lex_expr__38/1], input)
+      Tokenizer.first_char_match([&lex_expr__45/1, &lex_expr__46/1], input)
     end
 
-    def lex_expr__39(input) do
+    def lex_expr__47(input) do
       case input do
         <<c::utf8, rest::binary>> ->
           if Tokenizer.in_ranges?(c, [
@@ -474,76 +532,47 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def lex_expr__40(input) do
+    def lex_expr__48(input) do
       lex_token__ALNUM(input)
     end
 
     def lex_token__SYMBOL_CHAR(input) do
-      Tokenizer.first_char_match([&lex_expr__39/1, &lex_expr__40/1], input)
+      Tokenizer.first_char_match([&lex_expr__47/1, &lex_expr__48/1], input)
     end
 
-    def lex_expr__41(input) do
+    def lex_expr__49(input) do
       lex_token__SYMBOL_START(input)
     end
 
-    def lex_expr__43(input) do
+    def lex_expr__51(input) do
       lex_token__SYMBOL_CHAR(input)
     end
 
-    def lex_expr__42(input) do
-      Tokenizer.star_char(&lex_expr__43/1, input)
+    def lex_expr__50(input) do
+      Tokenizer.star_char(&lex_expr__51/1, input)
     end
 
     def lex_token__SYMBOL(input0) do
-      with {:ok, t0, rest0} <- lex_expr__41(input0), {:ok, t1, rest1} <- lex_expr__42(rest0) do
+      with {:ok, t0, rest0} <- lex_expr__49(input0), {:ok, t1, rest1} <- lex_expr__50(rest0) do
         {:ok, t0 <> t1, rest1}
       else
         :fail -> :fail
       end
     end
 
-    def lex_expr__44(input) do
+    def lex_expr__52(input) do
       case input do
         <<":", rest::binary>> -> {:ok, ":", rest}
         _ -> :fail
       end
     end
 
-    def lex_expr__45(input) do
+    def lex_expr__53(input) do
       lex_token__SYMBOL(input)
     end
 
     def lex_token__KEYWORD(input0) do
-      with {:ok, t0, rest0} <- lex_expr__44(input0), {:ok, t1, rest1} <- lex_expr__45(rest0) do
-        {:ok, t0 <> t1, rest1}
-      else
-        :fail -> :fail
-      end
-    end
-
-    def lex_expr__46(input) do
-      case input do
-        <<"\"", rest::binary>> -> {:ok, "\"", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__50(input) do
-      case input do
-        <<"\\", rest::binary>> -> {:ok, "\\", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__51(input) do
-      case input do
-        <<c::utf8, rest::binary>> -> {:ok, <<c::utf8>>, rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__49(input0) do
-      with {:ok, t0, rest0} <- lex_expr__50(input0), {:ok, t1, rest1} <- lex_expr__51(rest0) do
+      with {:ok, t0, rest0} <- lex_expr__52(input0), {:ok, t1, rest1} <- lex_expr__53(rest0) do
         {:ok, t0 <> t1, rest1}
       else
         :fail -> :fail
@@ -557,78 +586,22 @@ defmodule Logos.Reader.Generated do
       end
     end
 
-    def lex_expr__53(input) do
-      Tokenizer.not_pred_char(&lex_expr__54/1, input)
-    end
-
-    def lex_expr__55(input) do
-      case input do
-        <<c::utf8, rest::binary>> -> {:ok, <<c::utf8>>, rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_expr__52(input0) do
-      with {:ok, t0, rest0} <- lex_expr__53(input0), {:ok, t1, rest1} <- lex_expr__55(rest0) do
-        {:ok, t0 <> t1, rest1}
-      else
-        :fail -> :fail
-      end
-    end
-
-    def lex_expr__48(input) do
-      Tokenizer.first_char_match([&lex_expr__49/1, &lex_expr__52/1], input)
-    end
-
-    def lex_expr__47(input) do
-      Tokenizer.star_char(&lex_expr__48/1, input)
-    end
-
-    def lex_expr__56(input) do
-      case input do
-        <<"\"", rest::binary>> -> {:ok, "\"", rest}
-        _ -> :fail
-      end
-    end
-
-    def lex_token__STRING(input0) do
-      with {:ok, t0, rest0} <- lex_expr__46(input0),
-           {:ok, t1, rest1} <- lex_expr__47(rest0),
-           {:ok, t2, rest2} <- lex_expr__56(rest1) do
-        {:ok, t0 <> t1 <> t2, rest2}
-      else
-        :fail -> :fail
-      end
-    end
-
-    def lex_expr__57(input) do
+    def lex_expr__58(input) do
       case input do
         <<"\\", rest::binary>> -> {:ok, "\\", rest}
         _ -> :fail
       end
     end
 
-    def lex_expr__60(input) do
-      lex_token__SYMBOL_CHAR(input)
-    end
-
     def lex_expr__59(input) do
-      Tokenizer.plus_char(&lex_expr__60/1, input)
-    end
-
-    def lex_expr__61(input) do
       case input do
         <<c::utf8, rest::binary>> -> {:ok, <<c::utf8>>, rest}
         _ -> :fail
       end
     end
 
-    def lex_expr__58(input) do
-      Tokenizer.first_char_match([&lex_expr__59/1, &lex_expr__61/1], input)
-    end
-
-    def lex_token__CHAR(input0) do
-      with {:ok, t0, rest0} <- lex_expr__57(input0), {:ok, t1, rest1} <- lex_expr__58(rest0) do
+    def lex_expr__57(input0) do
+      with {:ok, t0, rest0} <- lex_expr__58(input0), {:ok, t1, rest1} <- lex_expr__59(rest0) do
         {:ok, t0 <> t1, rest1}
       else
         :fail -> :fail
@@ -637,57 +610,84 @@ defmodule Logos.Reader.Generated do
 
     def lex_expr__62(input) do
       case input do
-        <<";", rest::binary>> -> {:ok, ";", rest}
+        <<"\"", rest::binary>> -> {:ok, "\"", rest}
         _ -> :fail
       end
     end
 
-    def lex_expr__66(input) do
-      case input do
-        <<"\n", rest::binary>> -> {:ok, "\n", rest}
-        _ -> :fail
-      end
+    def lex_expr__61(input) do
+      Tokenizer.not_pred_char(&lex_expr__62/1, input)
     end
 
-    def lex_expr__65(input) do
-      Tokenizer.not_pred_char(&lex_expr__66/1, input)
-    end
-
-    def lex_expr__67(input) do
+    def lex_expr__63(input) do
       case input do
         <<c::utf8, rest::binary>> -> {:ok, <<c::utf8>>, rest}
         _ -> :fail
       end
     end
 
-    def lex_expr__64(input0) do
-      with {:ok, t0, rest0} <- lex_expr__65(input0), {:ok, t1, rest1} <- lex_expr__67(rest0) do
+    def lex_expr__60(input0) do
+      with {:ok, t0, rest0} <- lex_expr__61(input0), {:ok, t1, rest1} <- lex_expr__63(rest0) do
         {:ok, t0 <> t1, rest1}
       else
         :fail -> :fail
       end
     end
 
-    def lex_expr__63(input) do
-      Tokenizer.star_char(&lex_expr__64/1, input)
+    def lex_expr__56(input) do
+      Tokenizer.first_char_match([&lex_expr__57/1, &lex_expr__60/1], input)
     end
 
-    def lex_expr__69(input) do
+    def lex_expr__55(input) do
+      Tokenizer.star_char(&lex_expr__56/1, input)
+    end
+
+    def lex_expr__64(input) do
       case input do
-        <<"\n", rest::binary>> -> {:ok, "\n", rest}
+        <<"\"", rest::binary>> -> {:ok, "\"", rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_token__STRING(input0) do
+      with {:ok, t0, rest0} <- lex_expr__54(input0),
+           {:ok, t1, rest1} <- lex_expr__55(rest0),
+           {:ok, t2, rest2} <- lex_expr__64(rest1) do
+        {:ok, t0 <> t1 <> t2, rest2}
+      else
+        :fail -> :fail
+      end
+    end
+
+    def lex_expr__65(input) do
+      case input do
+        <<"\\", rest::binary>> -> {:ok, "\\", rest}
         _ -> :fail
       end
     end
 
     def lex_expr__68(input) do
-      Tokenizer.opt_char(&lex_expr__69/1, input)
+      lex_token__SYMBOL_CHAR(input)
     end
 
-    def lex_token__COMMENT(input0) do
-      with {:ok, t0, rest0} <- lex_expr__62(input0),
-           {:ok, t1, rest1} <- lex_expr__63(rest0),
-           {:ok, t2, rest2} <- lex_expr__68(rest1) do
-        {:ok, t0 <> t1 <> t2, rest2}
+    def lex_expr__67(input) do
+      Tokenizer.plus_char(&lex_expr__68/1, input)
+    end
+
+    def lex_expr__69(input) do
+      case input do
+        <<c::utf8, rest::binary>> -> {:ok, <<c::utf8>>, rest}
+        _ -> :fail
+      end
+    end
+
+    def lex_expr__66(input) do
+      Tokenizer.first_char_match([&lex_expr__67/1, &lex_expr__69/1], input)
+    end
+
+    def lex_token__CHAR(input0) do
+      with {:ok, t0, rest0} <- lex_expr__65(input0), {:ok, t1, rest1} <- lex_expr__66(rest0) do
+        {:ok, t0 <> t1, rest1}
       else
         :fail -> :fail
       end
@@ -832,45 +832,40 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__0(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :SYMBOL) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{SYMBOL: {:token, :SYMBOL, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{SYMBOL: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, SYMBOL: {:token, :SYMBOL, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, SYMBOL: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__1(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :KEYWORD) do
-        {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{KEYWORD: {:token, :KEYWORD, text}}}
-
-        {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{KEYWORD: capture}}
-
-        :fail ->
-          :fail
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, KEYWORD: {:token, :KEYWORD, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, KEYWORD: capture}
+        :fail -> :fail
       end
     end
 
     def parse_expr__2(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :STRING) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{STRING: {:token, :STRING, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{STRING: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, STRING: {:token, :STRING, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, STRING: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__3(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :NUMBER) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{NUMBER: {:token, :NUMBER, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{NUMBER: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, NUMBER: {:token, :NUMBER, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, NUMBER: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__4(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :CHAR) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{CHAR: {:token, :CHAR, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{CHAR: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, CHAR: {:token, :CHAR, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, CHAR: capture}
         :fail -> :fail
       end
     end
@@ -893,15 +888,15 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__5(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :LPAREN) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{LPAREN: {:token, :LPAREN, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{LPAREN: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, LPAREN: {:token, :LPAREN, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, LPAREN: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__7(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -913,7 +908,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__10(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -922,7 +917,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__14(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -934,7 +929,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__15(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -969,7 +964,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__17(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -980,8 +975,8 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__18(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :RPAREN) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{RPAREN: {:token, :RPAREN, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{RPAREN: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, RPAREN: {:token, :RPAREN, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, RPAREN: capture}
         :fail -> :fail
       end
     end
@@ -1008,10 +1003,10 @@ defmodule Logos.Reader.Generated do
     def parse_expr__19(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :HASH_LBRACE) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{HASH_LBRACE: {:token, :HASH_LBRACE, text}}}
+          {:ok, new_pos, ref_stack, HASH_LBRACE: {:token, :HASH_LBRACE, text}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{HASH_LBRACE: capture}}
+          {:ok, new_pos, ref_stack, HASH_LBRACE: capture}
 
         :fail ->
           :fail
@@ -1020,7 +1015,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__21(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1032,7 +1027,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__24(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1041,7 +1036,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__28(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1053,7 +1048,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__29(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1088,7 +1083,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__31(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1099,8 +1094,8 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__32(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :RBRACE) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{RBRACE: {:token, :RBRACE, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{RBRACE: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, RBRACE: {:token, :RBRACE, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, RBRACE: capture}
         :fail -> :fail
       end
     end
@@ -1126,15 +1121,15 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__33(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :LBRACE) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{LBRACE: {:token, :LBRACE, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{LBRACE: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, LBRACE: {:token, :LBRACE, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, LBRACE: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__35(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1146,7 +1141,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__39(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1155,7 +1150,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__41(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1167,7 +1162,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__42(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1186,7 +1181,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__46(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1198,7 +1193,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__48(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1207,7 +1202,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__50(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1219,7 +1214,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__51(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1264,7 +1259,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__53(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1275,8 +1270,8 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__54(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :RBRACE) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{RBRACE: {:token, :RBRACE, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{RBRACE: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, RBRACE: {:token, :RBRACE, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, RBRACE: capture}
         :fail -> :fail
       end
     end
@@ -1303,7 +1298,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__55(stream, pos, ref_stack, context) do
       case parse_rule__datum_comment(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{datum_comment: {:rule, :datum_comment, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, datum_comment: {:rule, :datum_comment, sub_captures}}
 
         _fail ->
           :fail
@@ -1313,7 +1308,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__56(stream, pos, ref_stack, context) do
       case parse_rule__set(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{set: {:rule, :set, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, set: {:rule, :set, sub_captures}}
 
         _fail ->
           :fail
@@ -1323,7 +1318,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__57(stream, pos, ref_stack, context) do
       case parse_rule__anon_fn_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{anon_fn_sugar: {:rule, :anon_fn_sugar, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, anon_fn_sugar: {:rule, :anon_fn_sugar, sub_captures}}
 
         _fail ->
           :fail
@@ -1333,7 +1328,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__58(stream, pos, ref_stack, context) do
       case parse_rule__list(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{list: {:rule, :list, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, list: {:rule, :list, sub_captures}}
 
         _fail ->
           :fail
@@ -1343,7 +1338,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__59(stream, pos, ref_stack, context) do
       case parse_rule__vector(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{vector: {:rule, :vector, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, vector: {:rule, :vector, sub_captures}}
 
         _fail ->
           :fail
@@ -1353,7 +1348,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__60(stream, pos, ref_stack, context) do
       case parse_rule__map(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{map: {:rule, :map, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, map: {:rule, :map, sub_captures}}
 
         _fail ->
           :fail
@@ -1363,7 +1358,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__61(stream, pos, ref_stack, context) do
       case parse_rule__reader_macro(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{reader_macro: {:rule, :reader_macro, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, reader_macro: {:rule, :reader_macro, sub_captures}}
 
         _fail ->
           :fail
@@ -1373,7 +1368,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__62(stream, pos, ref_stack, context) do
       case parse_rule__tagged_literal(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{tagged_literal: {:rule, :tagged_literal, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, tagged_literal: {:rule, :tagged_literal, sub_captures}}
 
         _fail ->
           :fail
@@ -1383,7 +1378,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__63(stream, pos, ref_stack, context) do
       case parse_rule__atom(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{atom: {:rule, :atom, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, atom: {:rule, :atom, sub_captures}}
 
         _fail ->
           :fail
@@ -1413,10 +1408,10 @@ defmodule Logos.Reader.Generated do
     def parse_expr__64(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :HASH_UNDERSCORE) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{HASH_UNDERSCORE: {:token, :HASH_UNDERSCORE, text}}}
+          {:ok, new_pos, ref_stack, HASH_UNDERSCORE: {:token, :HASH_UNDERSCORE, text}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{HASH_UNDERSCORE: capture}}
+          {:ok, new_pos, ref_stack, HASH_UNDERSCORE: capture}
 
         :fail ->
           :fail
@@ -1425,7 +1420,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__66(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1437,7 +1432,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__67(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1457,10 +1452,10 @@ defmodule Logos.Reader.Generated do
     def parse_expr__68(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :HASH_LPAREN) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{HASH_LPAREN: {:token, :HASH_LPAREN, text}}}
+          {:ok, new_pos, ref_stack, HASH_LPAREN: {:token, :HASH_LPAREN, text}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{HASH_LPAREN: capture}}
+          {:ok, new_pos, ref_stack, HASH_LPAREN: capture}
 
         :fail ->
           :fail
@@ -1469,7 +1464,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__70(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1481,7 +1476,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__73(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1490,7 +1485,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__77(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1502,7 +1497,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__78(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1537,7 +1532,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__80(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1548,8 +1543,8 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__81(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :RPAREN) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{RPAREN: {:token, :RPAREN, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{RPAREN: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, RPAREN: {:token, :RPAREN, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, RPAREN: capture}
         :fail -> :fail
       end
     end
@@ -1576,10 +1571,10 @@ defmodule Logos.Reader.Generated do
     def parse_expr__82(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :LBRACKET) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{LBRACKET: {:token, :LBRACKET, text}}}
+          {:ok, new_pos, ref_stack, LBRACKET: {:token, :LBRACKET, text}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{LBRACKET: capture}}
+          {:ok, new_pos, ref_stack, LBRACKET: capture}
 
         :fail ->
           :fail
@@ -1588,7 +1583,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__84(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1600,7 +1595,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__87(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1609,7 +1604,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__91(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1621,7 +1616,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__92(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1656,7 +1651,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__94(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1668,10 +1663,10 @@ defmodule Logos.Reader.Generated do
     def parse_expr__95(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :RBRACKET) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{RBRACKET: {:token, :RBRACKET, text}}}
+          {:ok, new_pos, ref_stack, RBRACKET: {:token, :RBRACKET, text}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{RBRACKET: capture}}
+          {:ok, new_pos, ref_stack, RBRACKET: capture}
 
         :fail ->
           :fail
@@ -1700,7 +1695,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__96(stream, pos, ref_stack, context) do
       case parse_rule__quote_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{quote_sugar: {:rule, :quote_sugar, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, quote_sugar: {:rule, :quote_sugar, sub_captures}}
 
         _fail ->
           :fail
@@ -1711,7 +1706,7 @@ defmodule Logos.Reader.Generated do
       case parse_rule__quasiquote_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack,
-           %{quasiquote_sugar: {:rule, :quasiquote_sugar, sub_captures}}}
+           quasiquote_sugar: {:rule, :quasiquote_sugar, sub_captures}}
 
         _fail ->
           :fail
@@ -1722,7 +1717,7 @@ defmodule Logos.Reader.Generated do
       case parse_rule__unquote_splice_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
           {:ok, new_pos, new_ref_stack,
-           %{unquote_splice_sugar: {:rule, :unquote_splice_sugar, sub_captures}}}
+           unquote_splice_sugar: {:rule, :unquote_splice_sugar, sub_captures}}
 
         _fail ->
           :fail
@@ -1732,7 +1727,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__99(stream, pos, ref_stack, context) do
       case parse_rule__unquote_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{unquote_sugar: {:rule, :unquote_sugar, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, unquote_sugar: {:rule, :unquote_sugar, sub_captures}}
 
         _fail ->
           :fail
@@ -1742,8 +1737,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__100(stream, pos, ref_stack, context) do
       case parse_rule__var_quote_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack,
-           %{var_quote_sugar: {:rule, :var_quote_sugar, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, var_quote_sugar: {:rule, :var_quote_sugar, sub_captures}}
 
         _fail ->
           :fail
@@ -1753,7 +1747,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__101(stream, pos, ref_stack, context) do
       case parse_rule__meta_sugar(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{meta_sugar: {:rule, :meta_sugar, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, meta_sugar: {:rule, :meta_sugar, sub_captures}}
 
         _fail ->
           :fail
@@ -1779,15 +1773,15 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__102(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :HASH) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{HASH: {:token, :HASH, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{HASH: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, HASH: {:token, :HASH, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, HASH: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__104(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1798,15 +1792,15 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__105(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :SYMBOL) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{tag: {:token, :SYMBOL, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{tag: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, tag: {:token, :SYMBOL, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, tag: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__107(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1818,7 +1812,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__108(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{value: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, value: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1846,15 +1840,15 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__109(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :QUOTE) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{QUOTE: {:token, :QUOTE, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{QUOTE: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, QUOTE: {:token, :QUOTE, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, QUOTE: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__111(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1866,7 +1860,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__112(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1886,10 +1880,10 @@ defmodule Logos.Reader.Generated do
     def parse_expr__113(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :BACKTICK) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{BACKTICK: {:token, :BACKTICK, text}}}
+          {:ok, new_pos, ref_stack, BACKTICK: {:token, :BACKTICK, text}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{BACKTICK: capture}}
+          {:ok, new_pos, ref_stack, BACKTICK: capture}
 
         :fail ->
           :fail
@@ -1898,7 +1892,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__115(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1910,7 +1904,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__116(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1930,10 +1924,10 @@ defmodule Logos.Reader.Generated do
     def parse_expr__117(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TILDE_AT) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{TILDE_AT: {:token, :TILDE_AT, text}}}
+          {:ok, new_pos, ref_stack, TILDE_AT: {:token, :TILDE_AT, text}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{TILDE_AT: capture}}
+          {:ok, new_pos, ref_stack, TILDE_AT: capture}
 
         :fail ->
           :fail
@@ -1942,7 +1936,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__119(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1954,7 +1948,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__120(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -1973,15 +1967,15 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__121(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TILDE) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{TILDE: {:token, :TILDE, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{TILDE: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, TILDE: {:token, :TILDE, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, TILDE: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__123(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -1993,7 +1987,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__124(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -2013,10 +2007,10 @@ defmodule Logos.Reader.Generated do
     def parse_expr__125(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :HASH_QUOTE) do
         {:ok, new_pos, text, nil} ->
-          {:ok, new_pos, ref_stack, %{HASH_QUOTE: {:token, :HASH_QUOTE, text}}}
+          {:ok, new_pos, ref_stack, HASH_QUOTE: {:token, :HASH_QUOTE, text}}
 
         {:ok, new_pos, _text, capture} ->
-          {:ok, new_pos, ref_stack, %{HASH_QUOTE: capture}}
+          {:ok, new_pos, ref_stack, HASH_QUOTE: capture}
 
         :fail ->
           :fail
@@ -2025,7 +2019,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__127(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -2037,7 +2031,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__128(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{form: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, form: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -2056,15 +2050,15 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__129(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :CARET) do
-        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, %{CARET: {:token, :CARET, text}}}
-        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, %{CARET: capture}}
+        {:ok, new_pos, text, nil} -> {:ok, new_pos, ref_stack, CARET: {:token, :CARET, text}}
+        {:ok, new_pos, _text, capture} -> {:ok, new_pos, ref_stack, CARET: capture}
         :fail -> :fail
       end
     end
 
     def parse_expr__131(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -2076,7 +2070,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__132(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{meta: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, meta: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -2085,7 +2079,7 @@ defmodule Logos.Reader.Generated do
 
     def parse_expr__134(stream, pos, ref_stack, _context) do
       case Parser.match_token(stream, pos, :TRIVIA) do
-        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, %{}}
+        {:ok, new_pos, _text, _capture} -> {:ok, new_pos, ref_stack, []}
         :fail -> :fail
       end
     end
@@ -2097,7 +2091,7 @@ defmodule Logos.Reader.Generated do
     def parse_expr__135(stream, pos, ref_stack, context) do
       case parse_rule__form(stream, pos, ref_stack, context) do
         {:ok, new_pos, new_ref_stack, sub_captures} ->
-          {:ok, new_pos, new_ref_stack, %{target: {:rule, :form, sub_captures}}}
+          {:ok, new_pos, new_ref_stack, target: {:rule, :form, sub_captures}}
 
         _fail ->
           :fail
@@ -2136,7 +2130,8 @@ defmodule Logos.Reader.Generated do
     )
 
     @doc "Matches `input` against the grammar's root rule, requiring the entire (tokenized) input to be consumed. A bare recognizer -- no `Ichor.Actions` involved. `context` is read-only and only ever consulted by a `Grammar.IR.Custom` `@native(...)` node, if the grammar has one."
-    @spec parse(String.t(), term()) :: {:ok, non_neg_integer(), map()} | {:error, Ichor.Error.t()}
+    @spec parse(String.t(), term()) ::
+            {:ok, non_neg_integer(), Ichor.Capture.raw_captures()} | {:error, Ichor.Error.t()}
     def parse(input, context \\ nil) do
       with {:ok, tokens} <- tokenize(input, context) do
         stream = List.to_tuple(tokens)

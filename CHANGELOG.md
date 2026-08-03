@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Upgraded `ichor` (dev-only) `0.2.1` -> `0.3.0` and `ichor_runtime`
+  (runtime) `0.1.0` -> `0.2.0`; both `mix.exs` constraints now
+  major.minor only (`~> 0.3` / `~> 0.2`), no patch pin, per this
+  project's own dependency-version convention. `ichor` `0.3.0` is what
+  unblocks the `ichor_runtime` bump -- `0.2.1` still internally pinned
+  `ichor_runtime ~> 0.1.0`, capping resolution below `0.2.0` regardless
+  of Logos's own requirement. `lib/logos/reader/generated.ex`
+  regenerated via `mix ichor.gen` against the new `ichor` -- a large
+  textual diff (internal helper functions renumbered by the newer
+  codegen) but no behavioral change: `priv/grammar/logos.aether` itself
+  is untouched, `Grammar.VM.Token`'s shape and `Logos.Reader.tokenize/1`'s
+  output are unchanged (spot-checked directly), and the full test suite
+  passes unchanged.
+
 ## [0.1.0] - 2026-08-02
 
 Initial release.
