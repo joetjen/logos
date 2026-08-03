@@ -49,6 +49,30 @@ The other runtime dependency, `{:decimal, "~> 2.0"}`, backs decimal
 literals (`10.99M`, see `Logos.Decimal`) -- an ordinary Hex package,
 zero further dependencies of its own, no special setup.
 
+`guides/language/stdlib/*.md` are also generated -- an overview page, a
+special-forms page, a primitives page, and one page per stdlib
+namespace, each built from that item's own docstring plus a runnable,
+freshly-evaluated example (`Logos.StdlibDocs`, see its moduledoc; new
+stdlib examples live in its `@examples`/`@special_form_examples` module
+attributes, new primitive examples in its `@primitive_examples`). Every
+stdlib-namespace entry also shows its own defining form's exact source,
+reconstructed automatically from `priv/stdlib/*.logos` via
+`Logos.Reader.tokenize/1` (`extract_source_snippets/1`) -- nothing to
+maintain by hand there, it always reflects whatever the `.logos` source
+actually says. Primitive docstrings themselves live in
+`Logos.Primitives`'s own `@doc_data` (see its moduledoc) -- that's also
+what backs `(doc +)` etc. at the Logos level now, not just the generated
+page. If you add or edit a stdlib `defn`/`defmacro`/`import`
+docstring/example, or a primitive's own doc/example, regenerate them:
+
+```sh
+MIX_ENV=dev mix logos.gen_docs
+```
+
+`mix test` fails (`test/logos/stdlib_docs_test.exs`) if any checked-in
+page has drifted from a fresh regeneration, or if any documented item is
+missing an example (or has one that errors when evaluated).
+
 ## Architecture, in one paragraph
 
 Logos is three fully separate passes over increasingly-evaluated data:
@@ -69,7 +93,8 @@ codebase for the first time, read the moduledocs in roughly that order --
 `Logos.Reader` -> `Logos.Reader.Actions` -> `Logos.Macroexpand` ->
 `Logos.Eval` -> `Logos.Runtime`/`Logos.Namespace`/`Logos.Var` ->
 `Logos.Primitives`/`Logos.Stdlib` -> `Logos.Process` (concurrency) ->
-`Logos.Printer`/`Logos.Format`/`Logos.Repl` (dev tooling) -- each
+`Logos.Printer`/`Logos.Format`/`Logos.Repl`/`Logos.StdlibDocs` (dev
+tooling) -- each
 module's own moduledoc explains its role and how it fits with its
 neighbors in detail; there is no separate architecture document to keep
 in sync -- an earlier internal design document existed during initial
@@ -99,6 +124,7 @@ sources, not `.ex`):
 
 ```sh
 mix logos.format --check-formatted "priv/stdlib/*.logos"   # Logos (.logos) source formatting
+MIX_ENV=dev mix logos.gen_docs                              # regenerates guides/language/stdlib/*.md
 ```
 
 **The TCO test is slow by design.** `test/logos/tco_test.exs` runs a real

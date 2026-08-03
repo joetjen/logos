@@ -31,7 +31,11 @@
 ;; `clojure.string` is *also* `includes?`, not `contains?`, for the
 ;; identical reason against `clojure.core/contains?`). Where the raw
 ;; name already matches (`trim`, `reverse`, `capitalize`, `replace`,
-;; `split`), the imported name is used directly with no wrapper.
+;; `split`), the imported name is used directly with no wrapper -- every
+;; `import` call below passes its own optional trailing docstring
+;; argument (`Logos.Primitives`'s `import` 2-arity form) precisely so
+;; these no-wrapper names still carry a real docstring, not just the
+;; wrapped ones.
 ;;
 ;; `join`/`split-lines`/`blank?` need no interop at all -- pure Logos
 ;; over what's already imported/available.
@@ -66,33 +70,33 @@
 ;; -- all real Clojure `clojure.string` functions, all skipped as
 ;; genuinely niche outside what's built above.
 
-(import 'String.trim)
-(import 'String.reverse)
-(import 'String.capitalize)
-(import 'String.replace)
-(import 'String.split)
-(import 'String.upcase)
+(import 'String.trim "Trims whitespace from both ends of `s`.")
+(import 'String.reverse "Reverses the characters of string `s`.")
+(import 'String.capitalize "Uppercases `s`'s first character, lowercases the rest.")
+(import 'String.replace "`(replace s match replacement)` -- replaces every literal occurrence of `match` in `s` with `replacement`.")
+(import 'String.split "`(split s sep)` -- splits `s` on every literal occurrence of `sep`.")
+(import 'String.upcase "Uppercases every character in `s`.")
 (defn upper-case "Uppercases every character in `s`." [s] (logos.string/upcase s))
-(import 'String.downcase)
+(import 'String.downcase "Lowercases every character in `s`.")
 (defn lower-case "Lowercases every character in `s`." [s] (logos.string/downcase s))
-(import 'String.trim_leading)
+(import 'String.trim_leading "Trims whitespace from the left/leading end of `s` only.")
 (defn triml
   "Trims whitespace from the left/leading end of `s` only."
   [s]
   (logos.string/trim_leading s))
-(import 'String.trim_trailing)
+(import 'String.trim_trailing "Trims whitespace from the right/trailing end of `s` only.")
 (defn trimr
   "Trims whitespace from the right/trailing end of `s` only."
   [s]
   (logos.string/trim_trailing s))
-(import 'String.contains?)
+(import 'String.contains? "`(contains? s substr)` -- true if `s` contains `substr`.")
 (defn includes? "True if `s` contains `substr`." [s substr] (logos.string/contains? s substr))
-(import 'String.starts_with?)
+(import 'String.starts_with? "`(starts_with? s prefix)` -- true if `s` starts with `prefix`.")
 (defn starts-with?
   "True if `s` starts with `prefix`."
   [s prefix]
   (logos.string/starts_with? s prefix))
-(import 'String.ends_with?)
+(import 'String.ends_with? "`(ends_with? s suffix)` -- true if `s` ends with `suffix`.")
 (defn ends-with?
   "True if `s` ends with `suffix`."
   [s suffix]

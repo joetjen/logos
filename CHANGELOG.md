@@ -23,6 +23,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output are unchanged (spot-checked directly), and the full test suite
   passes unchanged.
 
+### Added
+
+- **Generated stdlib, special-forms & primitives doc reference**
+  (`guides/language/stdlib/*.md`, new "Stdlib Reference" ExDoc group),
+  built by `Logos.StdlibDocs.documents/0` (`mix logos.gen_docs`) -- an
+  overview/table-of-contents page, a special-forms page, a primitives
+  page (every Layer-1 `Logos.Primitives` entry, each now with a real
+  docstring instead of the old generic `"Layer-1 primitive"`
+  placeholder -- `(doc +)` etc. finally return something meaningful),
+  and one page per stdlib namespace, each a flat, per-symbol lookup
+  pulled live from that item's own docstring, companion to
+  `guides/language/LOGOS.md`'s narrative reference. Every documented
+  item (special form, primitive, function, or macro) also gets a
+  runnable example: actually evaluated at generation time, in its own
+  isolated process (so one example's stray process state -- a leftover
+  mailbox message, a changed process flag -- can never leak into
+  another's result), never a hand-typed "expected output" that could
+  drift from what the code really does. Every stdlib-namespace entry
+  (function/macro/var, across all eight `priv/stdlib/*.logos`
+  namespaces) also shows its own defining form's exact source,
+  reconstructed byte-for-byte from `Logos.Reader.tokenize/1`'s
+  position-preserving token stream. `mix test` fails if any checked-in
+  page drifts from a fresh regeneration, if the hand-maintained
+  special-forms list drifts from `Logos.Eval`'s actual clauses, or if
+  any documented item is missing an example (or has one that errors).
+- `import` accepts an optional trailing docstring argument, same shape
+  as `def`'s own 3-arg form, attached as `:doc` metadata on the interned
+  Var -- closes the gap where a raw imported name used with no
+  Logos-level wrapper (`logos.string`'s own `trim`/`reverse`/
+  `capitalize`/`replace`/`split`) had no docstring reachable via
+  `(doc name)`.
+- Docstrings for previously-undocumented public stdlib vars: all twelve
+  `logos.string` functions (five raw-imported, seven wrapped), seven
+  `logos.seq` `-onto` accumulator helpers, and `logos.multimethod`'s
+  `multimethod-registry`.
+
 ## [0.1.0] - 2026-08-02
 
 Initial release.

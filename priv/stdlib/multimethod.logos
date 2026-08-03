@@ -44,7 +44,11 @@
 ;; motivated it in `test.logos` (a same-file `use` earlier in the file)
 ;; doesn't apply to this one.
 
-(def multimethod-registry {})
+(def multimethod-registry
+  "A single, shared map of `name -> {:dispatch-fn f :methods {dispatch-val -> method-fn}}`,
+  mutated by `register-multimethod!`/`register-method!`; see this file's
+  header comment for why it's a plain re-`def`'d var, not an atom."
+  {})
 (defn register-multimethod!
   "Registers `name` as a multimethod dispatching via `dispatch-fn`,
   starting with no methods -- the actual mutation `defmulti`'s expansion

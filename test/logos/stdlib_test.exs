@@ -1891,6 +1891,42 @@ defmodule Logos.StdlibTest do
       assert {:error, {:host_fn_error, String, :reverse, _}} =
                run("(interpose :x (list 1 2 3))", runtime)
     end
+
+    test "raw imported names carry a real docstring via import's optional 2-arity form" do
+      runtime = rt()
+      {:ok, _, _} = run("(require '[logos.string :as str])", runtime)
+
+      assert {:ok, "Trims whitespace from both ends of `s`.", _} =
+               run("(doc str/trim)", runtime)
+
+      assert {:ok, "Reverses the characters of string `s`.", _} =
+               run("(doc str/reverse)", runtime)
+    end
+  end
+
+  describe "import (2-arity docstring form)" do
+    test "attaches :doc metadata to the interned host-fn Var" do
+      runtime = rt()
+      {:ok, _, _} = run(~S|(import 'String.trim "Trims whitespace from both ends.")|, runtime)
+
+      assert {:ok, %{meta: %{doc: "Trims whitespace from both ends."}}} =
+               Logos.Namespace.get_var_row(runtime, "user", "trim")
+
+      assert {:ok, "Trims whitespace from both ends.", _} = run("(doc trim)", runtime)
+    end
+
+    test "still works with no docstring (1-arity form), Var has no :doc" do
+      runtime = rt()
+      {:ok, _, _} = run("(import 'String.upcase)", runtime)
+
+      assert {:ok, %{meta: meta}} = Logos.Namespace.get_var_row(runtime, "user", "upcase")
+      refute Map.has_key?(meta, :doc)
+    end
+
+    test "a non-string second argument is an invalid-args error, not silently ignored" do
+      runtime = rt()
+      assert {:error, {:invalid_args, "import", _}} = run("(import 'String.trim 42)", runtime)
+    end
   end
 
   # Helper: converts a Logos map's `Logos.Keyword` keys to plain Elixir
