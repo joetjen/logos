@@ -1,7 +1,7 @@
 defmodule Logos.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
 
   def project do
     [
@@ -56,7 +56,7 @@ defmodule Logos.MixProject do
       # Mix, and Hex are built-in (no deps needed)
       {:ex_doc, "~> 0.40", only: [:dev], runtime: false},
       # ExDoc is invoked via `MIX_ENV=dev mix docs`
-      {:ichor, "~> 0.2.1", only: [:dev], runtime: false},
+      {:ichor, "~> 0.3", only: [:dev], runtime: false},
       # Ichor (grammar parsing, analysis, codegen) is dev-time-only: its
       # `mix ichor.gen` task runs the parse/analyze/codegen pipeline once,
       # ahead of time, writing the result to lib/logos/reader/generated.ex
@@ -74,7 +74,7 @@ defmodule Logos.MixProject do
       # Independently published/maintained (its own repo, own release
       # cadence, not a subdirectory of ichor's), so an ordinary Hex
       # constraint -- no path/git/override wrangling needed.
-      {:ichor_runtime, "~> 0.1.0"},
+      {:ichor_runtime, "~> 0.2"},
       # `decimal` backs Logos's `M`-suffixed decimal literals
       # (`Logos.Decimal`, `lib/logos/value/decimal.ex`) -- the first
       # genuine runtime dependency Logos carries besides
@@ -143,16 +143,44 @@ defmodule Logos.MixProject do
       # no visibility into the underlying filesystem's case-folding).
       {"guides/language/LOGOS.md", [filename: "logos-language-reference"]},
       "guides/language/LOGOS_EXAMPLES.md",
-      "guides/language/LOGOS_CHEATSHEET.md",
-      "CHANGELOG.md",
-      "CONTRIBUTING.md",
-      {"LICENSE", [title: "License"]}
+      "guides/language/LOGOS_CHEATSHEET.md"
+    ] ++
+      stdlib_reference_extras() ++
+      [
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        {"LICENSE", [title: "License"]}
+      ]
+  end
+
+  # Generated (`mix logos.gen_docs`, see `Logos.StdlibDocs`) -- one file
+  # per special-forms/stdlib-namespace document, each in its own "Stdlib
+  # Reference" ExDoc group below, not "Language", since these are flat
+  # per-symbol lookup pages, not narrative guides. `:filename` is set
+  # explicitly on every one (not load-bearing today -- none of these
+  # basenames collide with an existing module's own page -- but cheap
+  # insurance against the exact case-insensitive-filesystem collision
+  # `logos-language-reference` above already works around).
+  defp stdlib_reference_extras do
+    [
+      {"guides/language/stdlib/OVERVIEW.md", [filename: "logos-stdlib-overview"]},
+      {"guides/language/stdlib/SPECIAL_FORMS.md", [filename: "logos-special-forms"]},
+      {"guides/language/stdlib/PRIMITIVES.md", [filename: "logos-primitives"]},
+      {"guides/language/stdlib/CORE.md", [filename: "logos-core-reference"]},
+      {"guides/language/stdlib/SEQ.md", [filename: "logos-seq-reference"]},
+      {"guides/language/stdlib/CONCURRENCY.md", [filename: "logos-concurrency-reference"]},
+      {"guides/language/stdlib/MULTIMETHOD.md", [filename: "logos-multimethod-reference"]},
+      {"guides/language/stdlib/SET.md", [filename: "logos-set-reference"]},
+      {"guides/language/stdlib/WALK.md", [filename: "logos-walk-reference"]},
+      {"guides/language/stdlib/STRING.md", [filename: "logos-string-reference"]},
+      {"guides/language/stdlib/TEST.md", [filename: "logos-test-reference"]}
     ]
   end
 
   defp groups_for_extras do
     [
-      Language: Path.wildcard("guides/language/*.md")
+      Language: Path.wildcard("guides/language/*.md"),
+      "Stdlib Reference": Enum.map(stdlib_reference_extras(), fn {path, _opts} -> path end)
     ]
   end
 
@@ -209,13 +237,15 @@ defmodule Logos.MixProject do
       "Dev Tooling": [
         Logos.Printer,
         Logos.Format,
-        Logos.Repl
+        Logos.Repl,
+        Logos.StdlibDocs
       ],
       "Mix Tasks": [
         Mix.Tasks.Logos.Repl,
         Mix.Tasks.Logos.Remsh,
         Mix.Tasks.Logos.Run,
-        Mix.Tasks.Logos.Format
+        Mix.Tasks.Logos.Format,
+        Mix.Tasks.Logos.GenDocs
       ]
     ]
   end

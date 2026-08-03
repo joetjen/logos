@@ -94,6 +94,10 @@ defmodule Logos.Stdlib do
   @spec source(String.t()) :: String.t()
   def source(ns), do: Map.fetch!(@sources, ns)
 
+  @doc "Every file-backed stdlib namespace, in load order (see moduledoc) -- `logos.map` (primitives-only, no `.logos` file) is not included. What `Logos.StdlibDocs` walks to build the generated stdlib reference."
+  @spec namespaces() :: [String.t()]
+  def namespaces, do: Enum.map(@files, fn {ns, _file} -> ns end)
+
   @doc """
   Loads every `priv/stdlib/*.logos` file into `runtime`, each into its own
   namespace, then refers the non-core namespaces into `logos.core` (see

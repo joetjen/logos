@@ -572,6 +572,10 @@
 ;; trim, the same spirit as this file's other trimmed edge variants.
 
 (defn partition-onto
+  "Accumulates `items` chunked into vectors of `n`, stepping by `step`,
+  onto `acc` in reverse order, dropping a short trailing chunk --
+  `partition`'s own worker. Public despite being an implementation
+  detail; see this file's header comment."
   [n step items acc]
   (if (< (count items) n)
     (reverse acc)
@@ -587,6 +591,10 @@
       (throw :invalid-partition-size (list :n n :step step))
       (partition-onto n step (to-list coll) ()))))
 (defn partition-all-onto
+  "Accumulates `items` chunked into vectors of `n`, stepping by `step`,
+  onto `acc` in reverse order, keeping a short trailing chunk --
+  `partition-all`'s own worker. Public despite being an implementation
+  detail; see this file's header comment."
   [n step items acc]
   (cond
     (empty? items) (reverse acc)
@@ -600,6 +608,11 @@
       (throw :invalid-partition-size (list :n n :step step))
       (partition-all-onto n step (to-list coll) ()))))
 (defn partition-by-onto
+  "Accumulates `items` chunked by consecutive elements sharing `(f x)`
+  onto `acc` in reverse order, tracking the in-progress chunk's own key
+  (`current-key`) and elements (`current-group`) -- `partition-by`'s own
+  worker. Public despite being an implementation detail; see this file's
+  header comment."
   [f items current-key current-group acc]
   (cond
     (empty? items)
@@ -622,6 +635,9 @@
 ;; ---- flatten ------------------------------------------------------------------------
 
 (defn flatten-onto
+  "Accumulates every non-sequential leaf reachable from `coll` onto
+  `acc`, in reverse order -- `flatten`'s own worker. Public despite being
+  an implementation detail; see this file's header comment."
   [coll acc]
   (if (or (list? coll) (vector? coll))
     (reduce (fn [acc2 x] (flatten-onto x acc2)) acc (to-list coll))
@@ -643,6 +659,9 @@
 ;; collections, itself always a single collection).
 
 (defn zipmap-onto
+  "Accumulates `ks`/`vs` pairs onto map `acc`, stopping at the shorter of
+  the two -- `zipmap`'s own worker. Public despite being an
+  implementation detail; see this file's header comment."
   [ks vs acc]
   (cond
     (or (empty? ks) (empty? vs)) acc
@@ -659,6 +678,9 @@
   [f coll]
   (apply concat (map f coll)))
 (defn interpose-onto
+  "Accumulates `items` onto `acc` in reverse order, with `sep` inserted
+  between every pair -- `interpose`'s own worker. Public despite being an
+  implementation detail; see this file's header comment."
   [sep items acc]
   (cond
     (empty? items) (reverse acc)
@@ -670,6 +692,10 @@
   [sep coll]
   (interpose-onto sep (to-list coll) ()))
 (defn interleave-onto
+  "Accumulates one round-robin pass across `colls` onto `acc`, in
+  reverse order, stopping as soon as any one of `colls` runs out --
+  `interleave`'s own worker. Public despite being an implementation
+  detail; see this file's header comment."
   [colls acc]
   (if (some empty? colls)
     (reverse acc)
