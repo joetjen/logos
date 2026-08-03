@@ -115,12 +115,234 @@ defmodule Logos.Primitives do
   # `Logos.Stdlib`), `logos.map` has no Logos source of its own at all.
   @map_primitive_names ~w(get assoc dissoc)
 
+  # Every primitive's own `{shape, doc}` pair, keyed by name -- the
+  # single source of truth both `install_group!/2` (real `:doc` metadata,
+  # so `(doc +)` etc. return something meaningful instead of a generic
+  # placeholder) and `Logos.StdlibDocs` (the generated Primitives
+  # reference page, with a runnable example alongside each) pull from.
+  # `docs/0` exposes it publicly for that second use.
+  @doc_data %{
+    "+" =>
+      {"`(+ & nums)`",
+       "Addition. Ratio-/decimal-aware; mixing a narrower numeric type into a wider one (integer -> ratio -> decimal -> float) always upgrades to the wider type. `(+)` is `0`."},
+    "-" =>
+      {"`(- a & more)`",
+       "Subtraction, or negation with a single argument (`(- 5)` => `-5`). Ratio-/decimal-aware, same numeric-tower rules as `+`."},
+    "*" => {"`(* & nums)`", "Multiplication. Ratio-/decimal-aware. `(*)` is `1`."},
+    "/" =>
+      {"`(/ a & more)`",
+       "Division. Two plain integers produce a ratio, auto-demoted to an integer when exact (`(/ 6 3)` => `2`, `(/ 1 3)` => `1/3`); a single argument is a reciprocal (`(/ 2)` => `1/2`). Ratio-/decimal-aware."},
+    "quot" =>
+      {"`(quot n d)`",
+       "Integer-only quotient, truncated toward zero -- wraps Erlang's `div` directly, exactly Clojure's own `quot`."},
+    "rem" =>
+      {"`(rem n d)`",
+       "Integer-only remainder; sign matches the dividend `n` (unlike `mod` (`logos.core`), whose sign matches the divisor). Wraps Erlang's `rem` directly."},
+    "=" =>
+      {"`(= a & more)`",
+       "Structural equality, chained across every argument. Ratio-/decimal-aware: a ratio always auto-reduces to lowest terms first, and a decimal compares scale-sensitively (`(= 1.10M 1.1M)` is `false` -- use `<=`/`>=` together for value-based equality)."},
+    "<" =>
+      {"`(< a & more)`",
+       "Strictly increasing, chained (`(< 1 2 3)` checks both steps). Ratio-/decimal-aware."},
+    ">" => {"`(> a & more)`", "Strictly decreasing, chained. Ratio-/decimal-aware."},
+    "<=" =>
+      {"`(<= a & more)`",
+       "Non-decreasing, chained. Ratio-/decimal-aware; value-based for decimals (`(<= 1.10M 1.1M)` is `true` even though `=` says `false`)."},
+    ">=" => {"`(>= a & more)`", "Non-increasing, chained. Ratio-/decimal-aware."},
+    "compare" =>
+      {"`(compare a b)`",
+       "Clojure's general-purpose ordering: a negative/zero/positive integer. Handles any comparable pairing (numbers, strings, chars, keywords/symbols, vectors/lists elementwise), not just numbers -- backs `sort`/`sort-by` (`logos.seq`) and `sorted-map`/`sorted-set`'s default ordering."},
+    "first" =>
+      {"`(first coll)`",
+       "The first element of list `coll`, or `nil` if `coll` is empty or `nil`."},
+    "rest" =>
+      {"`(rest coll)`",
+       "Every element of list `coll` after the first, or `()` if `coll` has one or zero elements, or is `nil`."},
+    "cons" => {"`(cons x coll)`", "Prepends `x` onto list `coll` (`nil` treated as `()`)."},
+    "list" => {"`(list & xs)`", "Builds a list from its arguments, in order."},
+    "vector" => {"`(vector & xs)`", "Builds a vector from its arguments, in order."},
+    "to-list" =>
+      {"`(to-list coll)`",
+       "Coerces `coll` (a list, vector, map, set, sorted-map/-set, or `nil`) to a plain list -- a map's entries surface as 2-element lists `(k v)`, not vectors. Already-a-list is an O(1) no-op (same reference back). What every `logos.seq` function uses internally to accept any collection shape."},
+    "apply" =>
+      {"`(apply f a b ... coll)`",
+       "Calls `f` with `a`/`b`/... then every element of trailing `coll` (list/vector/set/map/`nil`) as further positional arguments."},
+    "str" =>
+      {"`(str & vs)`",
+       "Stringifies every argument and concatenates. `nil` stringifies to `\"\"`, a string passes through bare; everything else reuses the same printer `pr-str` does, but WITHOUT re-quoting a string argument -- \"what a human should see\", not \"what reads back to this value\" (that's `pr-str`)."},
+    "pr-str" =>
+      {"`(pr-str & vs)`",
+       "Like `str`, but every argument (strings included) goes through the same reader-round-trippable printer unchanged: `(pr-str \"hi\")` => the quoted form. Multiple arguments join with a single space."},
+    "read-string" =>
+      {"`(read-string s)`",
+       "Parses `s` as Logos source text and returns the FIRST form as plain, unevaluated data. Malformed `s` raises a catchable `:read-error`."},
+    "concat" =>
+      {"`(concat & colls)`",
+       "Flattens every one of `colls` (list/vector/`nil`) into one list, in order."},
+    "list->vector" => {"`(list->vector coll)`", "Converts list `coll` into a vector."},
+    "list->map" =>
+      {"`(list->map coll)`", "Converts a list of `(k v)` 2-element lists into a map."},
+    "list->set" => {"`(list->set coll)`", "Converts list `coll` into a set."},
+    "get" =>
+      {"`(get coll k)` / `(get coll k not-found)`",
+       "Looks up `k` in `coll` -- a map/sorted-map/record key, a vector index (bounds-checked), or set/sorted-set membership (the element itself if present). `not-found` (default `nil`) is returned when missing. `nil` never contains anything."},
+    "assoc" =>
+      {"`(assoc coll k v & more)`",
+       "Associates `k` with `v` in `coll` (variadic: more `k v` pairs may follow), returning a new collection of the same shape. `nil` is treated as `{}`. Also works on a vector by index (an existing index, or exactly one past the end -- matching `conj` -- anything further raises)."},
+    "dissoc" =>
+      {"`(dissoc coll & ks)`",
+       "Removes each of `ks` from map `coll` (variadic), returning a new map. `nil` is treated as `{}`."},
+    "sorted-map" =>
+      {"`(sorted-map & kvs)`",
+       "Builds a sorted map from alternating key/value arguments, ordered by `compare`."},
+    "sorted-map-by" =>
+      {"`(sorted-map-by comparator & kvs)`",
+       "Like `sorted-map`, but ordered by a caller-supplied `comparator` function (must return a negative/zero/positive integer, `compare`'s own convention) instead of `compare` itself."},
+    "sorted-set" =>
+      {"`(sorted-set & xs)`", "Builds a sorted set from its arguments, ordered by `compare`."},
+    "sorted-set-by" =>
+      {"`(sorted-set-by comparator & xs)`",
+       "Like `sorted-set`, but ordered by a caller-supplied `comparator` function."},
+    "sorted-set-put" =>
+      {"`(sorted-set-put s x)`",
+       "Adds `x` to sorted-set `s`, keeping it sorted -- `conj`'s (`logos.seq`) own sorted-set worker."},
+    "sorted-set-remove" =>
+      {"`(sorted-set-remove s x)`",
+       "Removes `x` from sorted-set `s`, keeping it sorted -- `disj`'s (`logos.seq`) own sorted-set worker."},
+    "transient" =>
+      {"`(transient coll)`",
+       "Builds a mutable, in-place-editable view of vector/map/set `coll`, for fast repeated updates (`conj!`/`assoc!`/`dissoc!`/`disj!`/`pop!`) before converting back via `persistent!`."},
+    "conj!" =>
+      {"`(conj! t x)`", "Adds `x` to transient `t` in place, mutating it -- returns `t` itself."},
+    "assoc!" =>
+      {"`(assoc! t k v)`",
+       "Associates `k` with `v` in transient `t` in place, mutating it -- returns `t` itself."},
+    "dissoc!" =>
+      {"`(dissoc! t k)`",
+       "Removes `k` from transient map `t` in place, mutating it -- returns `t` itself."},
+    "disj!" =>
+      {"`(disj! t x)`",
+       "Removes `x` from transient set `t` in place, mutating it -- returns `t` itself."},
+    "pop!" =>
+      {"`(pop! t)`",
+       "Removes the last element from transient vector `t` in place, mutating it -- returns `t` itself."},
+    "persistent!" =>
+      {"`(persistent! t)`",
+       "Converts transient `t` back into an ordinary immutable vector/map/set, ending its mutable phase -- using `t` again afterward raises."},
+    "throw" =>
+      {"`(throw tag)` / `(throw tag value)`",
+       "Raises a value tagged with keyword `tag` (`value` defaults to `nil`), catchable by an enclosing `try`/`catch` with a matching tag."},
+    "intern-var!" =>
+      {"`(intern-var! qualified-sym value)`",
+       "Interns/mutates `qualified-sym`'s (an `ns/name` symbol) Var directly, bypassing `def`'s \"current namespace only\" restriction -- what `logos.multimethod`/`logos.test` use internally to mutate their own shared registry Vars from a caller in any namespace."},
+    "in-ns" =>
+      {"`(in-ns name)`",
+       "Switches (creating if needed) the current namespace to `name`, returning `name` as a bare symbol."},
+    "require" =>
+      {"`(require & specs)`",
+       "Loads each of `specs` (a bare namespace symbol, or `[ns :as alias]`/`[ns :refer [names...]]`/`[ns :refer [:all]]`) into the current namespace."},
+    "use" =>
+      {"`(use & specs)`",
+       "Like `require`, but implies `:refer [:all]` for every spec with no explicit `:refer`/`:as`."},
+    "import" =>
+      {"`(import dotted-sym)` / `(import dotted-sym doc)`",
+       "Interns an allowlisted Elixir function under its bare name in the current namespace -- e.g. `(import 'String.upcase)` interns `upcase`. Optional trailing docstring, same shape as `def`'s own 3-arg form."},
+    "register-data-reader!" =>
+      {"`(register-data-reader! tag dotted-name)`",
+       "Registers a `#tag value` reader for `tag` (a string or bare symbol), resolved through the same allowlist `import` uses."},
+    "set-macro!" =>
+      {"`(set-macro! sym flag)`",
+       "Sets/clears the `:macro` metadata flag on the Var `sym` refers to -- an alternative to `def`'s own `^:macro` reader sugar."},
+    "macro?" =>
+      {"`(macro? sym)`",
+       "True if `sym` resolves (through the full refer chain) to a Var flagged `:macro`."},
+    "gensym" =>
+      {"`(gensym)` / `(gensym \"prefix\")`",
+       "Returns a fresh, guaranteed-unique symbol -- what syntax-quote's own `x#` auto-gensym uses internally, also callable directly."},
+    "with-meta" =>
+      {"`(with-meta sym meta)`",
+       "Returns a copy of symbol `sym` with its own metadata replaced by map `meta`."},
+    "var-doc" =>
+      {"`(var-doc quoted-sym)`",
+       "Resolves `quoted-sym` through the full refer chain and returns its Var's `:doc` metadata, or `nil` -- backs `doc` (`logos.core`)."},
+    "string?" =>
+      {"`(string? x)`",
+       "True if `x` is a Logos string. Kept as a primitive (not built on `type-of`, unlike the other type predicates) specifically so `defn`/`defmacro`/`defn-` can detect an optional leading docstring argument before `type-of`'s own wrapper macros exist yet."},
+    "meta" =>
+      {"`(meta x)`",
+       "A symbol *value*'s own `^meta`/`with-meta`-attached metadata (`{}` by default), or `nil` for anything that isn't a symbol -- `with-meta`'s read-side counterpart. NOT a resolved Var's stored metadata (`:doc`/`:private`/`:macro`, that's `var-doc`/`macro?`) -- a different, unrelated piece of state."},
+    "type-of" =>
+      {"`(type-of x)`",
+       "Returns a keyword type tag for `x` (`:nil`, `:integer`, `:decimal`, `:vector`, ...) -- the one primitive every other type predicate (`nil?`/`list?`/`vector?`/`map?`/`set?`/`number?`/`decimal?`/`sorted?`/`transient?`, all pure Logos in `logos.core`) builds on."},
+    "keyword" =>
+      {"`(keyword \"name\")` / `(keyword \"ns\" \"name\")` / `(keyword sym)`",
+       "Builds a keyword from a string (bare or namespaced) or from a symbol's own name/namespace."},
+    "symbol" =>
+      {"`(symbol \"name\")` / `(symbol \"ns\" \"name\")`",
+       "Builds a fresh symbol (bare or namespaced) from a string -- `keyword`'s counterpart."},
+    "push-thread-binding!" =>
+      {"`(push-thread-binding! quoted-sym value)`",
+       "Per-BEAM-process dynamic-var override push -- the Elixir-side half of `binding` (`logos.core`); not meant to be called directly."},
+    "pop-thread-binding!" =>
+      {"`(pop-thread-binding! quoted-sym)`",
+       "Per-BEAM-process dynamic-var override pop -- `push-thread-binding!`'s counterpart; not meant to be called directly."},
+    "record" =>
+      {"`(record type-kw fields-map)`",
+       "Builds a genuine record value directly, tagged `type-kw` with fields `fields-map` -- the Elixir-side plumbing `defrecord` (`logos.core`) needs, since Logos has no generic \"construct an arbitrary struct\" facility of its own."},
+    "current-ns" => {"`(current-ns)`", "The bare current namespace name, as a string."},
+    "spawn" =>
+      {"`(spawn thunk)`",
+       "Runs zero-arg closure `thunk` in a brand-new, genuine BEAM process, returning its Pid."},
+    "spawn-link" =>
+      {"`(spawn-link thunk)`", "Like `spawn`, atomically linked to the calling process."},
+    "spawn-monitor" =>
+      {"`(spawn-monitor thunk)`",
+       "Like `spawn`, atomically monitored -- returns `(pid monitor-ref)`."},
+    "link" => {"`(link pid)`", "Links the calling process to `pid`."},
+    "unlink" => {"`(unlink pid)`", "Removes a link between the calling process and `pid`."},
+    "monitor" => {"`(monitor pid)`", "Monitors `pid`, returning a monitor reference."},
+    "demonitor" => {"`(demonitor ref)`", "Cancels monitor `ref`."},
+    "trap-exits!" =>
+      {"`(trap-exits! flag)`",
+       "Sets whether the calling process traps exits (a linked process's crash arrives as an `:EXIT` message instead of also crashing this process) -- `flag`'s Logos truthiness (only `nil`/`false` are falsy). Returns the PREVIOUS value of the flag (Erlang `Process.flag/2`'s own convention), not the new one -- `false` the first time it's ever called in a given process."},
+    "exit" =>
+      {"`(exit)` / `(exit reason)` / `(exit pid reason)`",
+       "0/1-arity exits the CALLING process itself (with `reason`, default `nil`); 2-arity sends an exit signal `reason` to `pid` instead."},
+    "self" => {"`(self)`", "The calling process's own Pid."},
+    "send" =>
+      {"`(send pid msg)`",
+       "Delivers `msg` (any Logos value, including a closure) to `pid`'s mailbox."},
+    "receive-match!" => {
+      "`(receive-match! pred handler)` / `(receive-match! pred handler timeout-ms default-fn)`",
+      "The primitive `receive` (`logos.concurrency`) compiles down to: pops one mailbox message, calls `(pred msg)`; on a truthy match, calls `(handler msg)`; on a miss, sends it back to itself and keeps scanning. With `timeout-ms`, gives up and calls zero-arg `default-fn` after that many milliseconds with no match."
+    },
+    "pid->atom" =>
+      {"`(pid->atom pid)`",
+       "Wraps Pid `pid` as an Atom -- used internally by `atom` (`logos.concurrency`)."},
+    "normal-exit?" =>
+      {"`(normal-exit? reason)`",
+       "Whether a `:DOWN`/`:EXIT` message's `reason` was a clean exit -- needed since `reason` is a raw Elixir term (the bare atom `:normal`), not something Logos source can construct or `=`-compare against directly."},
+    "system-argv" =>
+      {"`(system-argv)`", "A vector of strings -- `mix logos.run`'s own script arguments."},
+    "ns-list" =>
+      {"`(ns-list)`",
+       "A list of every namespace name currently registered -- `logos.repl` introspection support."},
+    "ns-vars" =>
+      {"`(ns-vars ns-name)`",
+       "A list of every Var name interned directly in namespace `ns-name` -- `logos.repl` introspection support."}
+  }
+
+  @doc "Every primitive's own `{shape, doc}` pair, keyed by name -- see `@doc_data`'s own comment."
+  @spec docs() :: %{String.t() => {String.t(), String.t()}}
+  def docs, do: @doc_data
+
   @doc """
   Interns every Layer-1 primitive as a `{:primitive, name}`-valued Var,
   grouped by namespace (`logos.core`'s existing set, plus the new
-  `logos.map`). `Logos.Stdlib.load!/1` refers `logos.map` into
-  `logos.core` after this runs, the same way it refers the `.logos`-file
-  namespaces -- see that module's moduledoc.
+  `logos.map`), with real `:doc` metadata from `@doc_data`/`docs/0`.
+  `Logos.Stdlib.load!/1` refers `logos.map` into `logos.core` after this
+  runs, the same way it refers the `.logos`-file namespaces -- see that
+  module's moduledoc.
   """
   @spec install!(Logos.Runtime.t()) :: :ok
   def install!(runtime) do
@@ -133,7 +355,8 @@ defmodule Logos.Primitives do
     Namespace.ensure!(runtime, ns)
 
     Enum.each(names, fn name ->
-      Namespace.intern!(runtime, ns, name, {:primitive, name}, %{doc: "Layer-1 primitive"})
+      {_shape, doc} = Map.fetch!(@doc_data, name)
+      Namespace.intern!(runtime, ns, name, {:primitive, name}, %{doc: doc})
     end)
   end
 
@@ -416,18 +639,18 @@ defmodule Logos.Primitives do
   # Only ever resolves `dotted` (e.g. "String.upcase") through
   # `Logos.Interop.Allowlist` -- this is the sandboxing chokepoint that
   # keeps `import` from opening arbitrary `Module.function` access.
-  defp apply_primitive("import", [%Symbol{ns: nil, name: dotted}], runtime) do
-    case Interop.Allowlist.lookup(dotted) do
-      {:ok, {mod, fun}} ->
-        local_name = dotted |> String.split(".") |> List.last()
-        ns = Logos.Runtime.current_ns(runtime)
-        Namespace.intern!(runtime, ns, local_name, {:host_fn, mod, fun})
-        Symbol.new(local_name, ns)
+  # Optional trailing `doc` string (2-arity form) attaches `:doc` metadata
+  # to the interned Var, same shape as `def`'s own optional docstring --
+  # needed so a raw imported name (e.g. `logos.string`'s `trim`/`reverse`/
+  # `capitalize`, used directly with no wrapper) can still carry a real
+  # docstring instead of showing up undocumented in `(doc name)`/the
+  # generated stdlib reference (`Logos.StdlibDocs`).
+  defp apply_primitive("import", [%Symbol{ns: nil, name: dotted}], runtime),
+    do: do_import(dotted, %{}, runtime)
 
-      :error ->
-        raise Logos.EvalError, reason: {:not_allowlisted, dotted}
-    end
-  end
+  defp apply_primitive("import", [%Symbol{ns: nil, name: dotted}, doc], runtime)
+       when is_binary(doc),
+       do: do_import(dotted, %{doc: doc}, runtime)
 
   defp apply_primitive("import", args, _runtime),
     do: raise(Logos.EvalError, reason: {:invalid_args, "import", args})
@@ -1115,6 +1338,19 @@ defmodule Logos.Primitives do
 
   defp apply_primitive(name, args, _runtime),
     do: raise(Logos.EvalError, reason: {:unknown_primitive, name, args})
+
+  defp do_import(dotted, meta, runtime) do
+    case Interop.Allowlist.lookup(dotted) do
+      {:ok, {mod, fun}} ->
+        local_name = dotted |> String.split(".") |> List.last()
+        ns = Logos.Runtime.current_ns(runtime)
+        Namespace.intern!(runtime, ns, local_name, {:host_fn, mod, fun}, meta)
+        Symbol.new(local_name, ns)
+
+      :error ->
+        raise Logos.EvalError, reason: {:not_allowlisted, dotted}
+    end
+  end
 
   # Logos truthiness for `trap-exits!`'s flag arg: only `nil`/`false` are
   # falsy, everything else (including `0`/`""`) is truthy.

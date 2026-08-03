@@ -737,7 +737,10 @@ below), everything else here is pure Logos built on top of them:
 
 Interned directly into `logos.core` as ordinary Vars whose value is a
 `{:primitive, name}` marker -- looked up through exactly the same
-symbol-resolution path as everything else.
+symbol-resolution path as everything else. See also the generated
+["Stdlib Reference" Primitives page](logos-primitives.html), one entry
+per primitive with a runnable, freshly-evaluated example alongside its
+docstring (`Logos.Primitives.docs/0`, `Logos.StdlibDocs`).
 
 | Name | Purpose |
 |---|---|
@@ -1287,6 +1290,17 @@ directly from Logos source:
 ```clojure
 (import 'String.upcase)   ; interns the last segment, `upcase`, in the current ns
 (upcase "hi")              ;=> "HI"
+```
+
+`import` also accepts an optional trailing docstring, same shape as
+`def`'s own 3-arg form -- attaches `:doc` metadata to the interned Var,
+so a raw imported name used directly with no Logos-level wrapper (see
+`logos.string`'s own `trim`/`reverse`/`capitalize`/`replace`/`split`)
+can still carry a real docstring, readable via `(doc name)`:
+
+```clojure
+(import 'String.upcase "Uppercases every character in `s`.")
+(doc upcase)   ;=> "Uppercases every character in `s`."
 ```
 
 The host-Elixir-side path also still works, if you'd rather register a
