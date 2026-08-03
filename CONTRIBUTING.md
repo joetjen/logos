@@ -17,12 +17,18 @@ Logos's reader is generated ahead of time by
 `lib/logos/reader/generated.ex` (see `Logos.Reader`'s moduledoc). Both
 Ichor dependencies are ordinary Hex packages:
 
-- `{:ichor, "~> 0.2.1", only: [:dev], runtime: false}` -- the grammar
+- `{:ichor, "~> 0.3", only: [:dev], runtime: false}` -- the grammar
   compiler itself, needed only to run `mix ichor.gen`, never at runtime.
-- `{:ichor_runtime, "~> 0.1.0"}` -- the small support library the
+- `{:ichor_runtime, "~> 0.2"}` -- the small support library the
   generated reader actually calls, [independently published and
   maintained](https://hex.pm/packages/ichor_runtime) (its own repo, own
   release cadence, not a subdirectory of `ichor`'s).
+
+Both constraints are major.minor only, no patch pin (this project's own
+convention -- see `AGENTS.md`'s "Dependency versions" section), so a
+future patch/minor release of either is picked up by an ordinary `mix
+deps.update ichor ichor_runtime` with no `mix.exs` edit needed, as long
+as it stays within the same major version.
 
 `mix deps.get` fetches both. If you change `priv/grammar/logos.aether`,
 regenerate the reader:

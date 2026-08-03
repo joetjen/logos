@@ -56,7 +56,7 @@ defmodule Logos.MixProject do
       # Mix, and Hex are built-in (no deps needed)
       {:ex_doc, "~> 0.40", only: [:dev], runtime: false},
       # ExDoc is invoked via `MIX_ENV=dev mix docs`
-      {:ichor, "~> 0.2.1", only: [:dev], runtime: false},
+      {:ichor, "~> 0.3", only: [:dev], runtime: false},
       # Ichor (grammar parsing, analysis, codegen) is dev-time-only: its
       # `mix ichor.gen` task runs the parse/analyze/codegen pipeline once,
       # ahead of time, writing the result to lib/logos/reader/generated.ex
@@ -74,7 +74,7 @@ defmodule Logos.MixProject do
       # Independently published/maintained (its own repo, own release
       # cadence, not a subdirectory of ichor's), so an ordinary Hex
       # constraint -- no path/git/override wrangling needed.
-      {:ichor_runtime, "~> 0.1.0"},
+      {:ichor_runtime, "~> 0.2"},
       # `decimal` backs Logos's `M`-suffixed decimal literals
       # (`Logos.Decimal`, `lib/logos/value/decimal.ex`) -- the first
       # genuine runtime dependency Logos carries besides
