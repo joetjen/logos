@@ -1,5 +1,7 @@
 # Logos
 
+**[Documentation](https://joetjen.github.io/logos)** -- **[GitHub](https://github.com/joetjen/logos)**
+
 Logos is a Clojure-flavored Lisp, embeddable in Elixir/BEAM applications.
 Source text is parsed via an Aether grammar (`priv/grammar/logos.aether`),
 compiled ahead of time through [Ichor](https://hex.pm/packages/ichor)'s
@@ -98,7 +100,8 @@ it directly from its source:
 def deps do
   [
     {:logos, path: "path/to/logos"}
-    # or: {:logos, github: "your-org/logos"}
+    # or: {:logos, github: "joetjen/logos"}
+    # or, pinned to a release tag: {:logos, github: "joetjen/logos", tag: "v0.2.0"}
   ]
 end
 ```
@@ -108,7 +111,7 @@ Once published, the usual form will apply:
 ```elixir
 def deps do
   [
-    {:logos, "~> 0.1.0"}
+    {:logos, "~> 0.2.0"}
   ]
 end
 ```
