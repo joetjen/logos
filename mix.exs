@@ -130,27 +130,45 @@ defmodule Logos.MixProject do
       "README.md",
       "guides/TUTORIAL.md",
       "guides/EXAMPLES.md",
-      "guides/CHEATSHEET.md",
-      "guides/language/TUTORIAL.md",
-      # `:filename` is required here, not cosmetic: ExDoc's default extras
-      # filename is the source basename lowercased ("logos"), which is
-      # the exact same output path (`logos.html`) the top-level `Logos`
-      # module's own API page gets. On a case-insensitive filesystem
-      # (the default on macOS) those collide -- whichever ExDoc writes
-      # last silently overwrites the other on disk, so this guide's page
-      # either never renders or clobbers the module page depending on
-      # generation order, with no warning from ExDoc either way (it has
-      # no visibility into the underlying filesystem's case-folding).
-      {"guides/language/LOGOS.md", [filename: "logos-language-reference"]},
-      "guides/language/LOGOS_EXAMPLES.md",
-      "guides/language/LOGOS_CHEATSHEET.md"
+      "guides/CHEATSHEET.md"
     ] ++
+      mix_tasks_extras() ++
+      [
+        "guides/language/TUTORIAL.md",
+        # `:filename` is required here, not cosmetic: ExDoc's default extras
+        # filename is the source basename lowercased ("logos"), which is
+        # the exact same output path (`logos.html`) the top-level `Logos`
+        # module's own API page gets. On a case-insensitive filesystem
+        # (the default on macOS) those collide -- whichever ExDoc writes
+        # last silently overwrites the other on disk, so this guide's page
+        # either never renders or clobbers the module page depending on
+        # generation order, with no warning from ExDoc either way (it has
+        # no visibility into the underlying filesystem's case-folding).
+        {"guides/language/LOGOS.md", [filename: "logos-language-reference"]},
+        "guides/language/LOGOS_EXAMPLES.md",
+        "guides/language/LOGOS_CHEATSHEET.md"
+      ] ++
       stdlib_reference_extras() ++
       [
         "CHANGELOG.md",
         "CONTRIBUTING.md",
         {"LICENSE", [title: "License"]}
       ]
+  end
+
+  # One hand-written guide per `logos.*` Mix task -- unlike
+  # `stdlib_reference_extras/0` below, these are NOT generated, so no
+  # drift-check test covers them; keep each guide's content in sync with
+  # its task's own `@moduledoc` by hand. `:filename` is set explicitly for
+  # the same cheap-insurance reason `stdlib_reference_extras/0` sets it.
+  defp mix_tasks_extras do
+    [
+      {"guides/mix_tasks/REPL.md", [filename: "mix-logos-repl"]},
+      {"guides/mix_tasks/RUN.md", [filename: "mix-logos-run"]},
+      {"guides/mix_tasks/FORMAT.md", [filename: "mix-logos-format"]},
+      {"guides/mix_tasks/REMSH.md", [filename: "mix-logos-remsh"]},
+      {"guides/mix_tasks/GEN_DOCS.md", [filename: "mix-logos-gen-docs"]}
+    ]
   end
 
   # Generated (`mix logos.gen_docs`, see `Logos.StdlibDocs`) -- one file
@@ -179,6 +197,7 @@ defmodule Logos.MixProject do
 
   defp groups_for_extras do
     [
+      "Mix Tasks": Enum.map(mix_tasks_extras(), fn {path, _opts} -> path end),
       Language: Path.wildcard("guides/language/*.md"),
       "Stdlib Reference": Enum.map(stdlib_reference_extras(), fn {path, _opts} -> path end)
     ]

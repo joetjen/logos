@@ -9,11 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **"Mix tasks" section in README.md**, as the first section -- a
-  quick-reference for all five `logos.*` Mix tasks (`logos.repl`,
-  `logos.run`, `logos.format`, `logos.remsh`, `logos.gen_docs`) with usage
+- **Per-task Mix task guides** (`guides/mix_tasks/*.md`, new "Mix Tasks"
+  ExDoc group) -- a detailed, hand-written guide for each of the five
+  `logos.*` Mix tasks (`logos.repl`, `logos.run`, `logos.format`,
+  `logos.remsh`, `logos.gen_docs`) with usage, options, and worked
   examples, alongside the existing per-task `@moduledoc`s and
-  `guides/CHEATSHEET.md` table.
+  `guides/CHEATSHEET.md`'s one-line quick reference. Linked from a new
+  "Mix tasks" subsection in README.md's "Where to go next", positioned
+  directly under the standard (embedding) guides and directly above the
+  language guides -- matching the new ExDoc group's position between the
+  ungrouped extras and the "Language" group.
 
 ## [0.2.0] - 2026-08-04
 
