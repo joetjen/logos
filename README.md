@@ -85,8 +85,9 @@ not a simulated abstraction on top of them.
   `reset!`) are ordinary Logos functions built on top of these, the same
   way you'd hand-roll a stateful process in plain Elixir.
 - **Dev tooling** -- `Logos.Printer` (round-tripping printer), `Logos.Format`
-  (a comment-preserving code formatter), `Logos.Repl`, and four Mix tasks:
-  `mix logos.repl`, `mix logos.run`, `mix logos.format`, `mix logos.remsh`.
+  (a comment-preserving code formatter), `Logos.Repl`, and five Mix tasks:
+  `mix logos.repl`, `mix logos.run`, `mix logos.format`, `mix logos.remsh`,
+  `mix logos.gen_docs` -- see [Mix tasks](#mix-tasks) below.
 
 ## Installation
 
@@ -157,6 +158,25 @@ lexical continuity across every form and returns the last value.
   examples.
 - **[Cheatsheet](guides/CHEATSHEET.md)** -- quick reference for common
   library tasks.
+
+### Mix tasks
+
+Detailed, per-task guides for all five `logos.*` Mix tasks -- usage,
+options, and worked examples. Each task also has its own `@moduledoc`
+(`mix help logos.repl`, etc.) with the full design rationale; these guides
+are the narrative version, and [guides/CHEATSHEET.md](guides/CHEATSHEET.md)
+has the one-line-per-task quick reference.
+
+- **[`mix logos.repl`](guides/mix_tasks/REPL.md)** -- starts a local REPL.
+- **[`mix logos.run`](guides/mix_tasks/RUN.md)** -- runs a Logos script
+  file or an inline expression.
+- **[`mix logos.format`](guides/mix_tasks/FORMAT.md)** -- formats Logos
+  source files, or checks that they're already formatted.
+- **[`mix logos.remsh`](guides/mix_tasks/REMSH.md)** -- attaches an
+  interactive REPL to a running, distributed Logos node.
+- **[`mix logos.gen_docs`](guides/mix_tasks/GEN_DOCS.md)** -- regenerates
+  the checked-in stdlib/special-forms doc reference pages.
+
 - **[Language tutorial](guides/language/TUTORIAL.md)** and
   **[Language reference](guides/language/LOGOS.md)** -- everything about
   the Logos language itself (the Lisp dialect), independent of how it's
