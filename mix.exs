@@ -2,6 +2,8 @@ defmodule Logos.MixProject do
   use Mix.Project
 
   @version "0.2.0"
+  @github_url "https://github.com/joetjen/logos"
+  @pages_url "https://joetjen.github.io/logos"
 
   def project do
     [
@@ -110,7 +112,7 @@ defmodule Logos.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/joetjen/logos"},
+      links: %{"GitHub" => @github_url, "Docs" => @pages_url},
       files:
         ~w(lib priv/grammar priv/stdlib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
@@ -119,6 +121,17 @@ defmodule Logos.MixProject do
   defp docs do
     [
       main: "readme",
+      source_url: @github_url,
+      # `.github/workflows/docs.yml` deploys on every push to `main`, not on
+      # release tags, so "View Source" links have to point at `main` too --
+      # pinning this to the last release tag (e.g. "v#{@version}") would
+      # 404 on anything added/changed since that tag, which is exactly the
+      # tip this site is built from. Explicit rather than relying on
+      # ExDoc's own "main" default, so this isn't mistaken for an oversight
+      # later.
+      source_ref: "main",
+      homepage_url: @github_url,
+      canonical: @pages_url,
       extras: extras(),
       groups_for_extras: groups_for_extras(),
       groups_for_modules: groups_for_modules()

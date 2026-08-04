@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **GitHub repository and Pages site properly referenced project-wide**:
+  `mix.exs`'s `docs()` now sets `source_url`/`source_ref`/`homepage_url`/
+  `canonical` (previously unset, so ExDoc's "View Source" links and the
+  `rel="canonical"` tag were missing or guessed), `package()` gets a
+  "Docs" link alongside the existing "GitHub" one, and README.md gets a
+  documentation/repo link under the title plus a fixed `github:
+  "joetjen/logos"` dependency example (was a `your-org/logos`
+  placeholder). `CHANGELOG.md` gets standard Keep a Changelog
+  version-comparison links at the bottom. `source_ref` is pinned to
+  `"main"`, not the last release tag, since `.github/workflows/docs.yml`
+  deploys on every push to `main` rather than on release tags.
+
+### Fixed
+
+- GitHub Pages was never actually enabled for the repository (no Pages
+  site existed, so `.github/workflows/docs.yml`'s `deploy-pages` step had
+  nothing to deploy to and failed). Enabled with source set to "GitHub
+  Actions"; docs now publish successfully to
+  <https://joetjen.github.io/logos>.
+
 - **Per-task Mix task guides** (`guides/mix_tasks/*.md`, new "Mix Tasks"
   ExDoc group) -- a detailed, hand-written guide for each of the five
   `logos.*` Mix tasks (`logos.repl`, `logos.run`, `logos.format`,
@@ -1105,3 +1125,7 @@ Initial release.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the current (empty) known-gaps
 list.
+
+[Unreleased]: https://github.com/joetjen/logos/compare/v0.2.0...develop
+[0.2.0]: https://github.com/joetjen/logos/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/joetjen/logos/releases/tag/v0.1.0
