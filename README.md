@@ -31,6 +31,67 @@ this one example.
 ;;=> 55
 ```
 
+## Mix tasks
+
+Five Mix tasks, all under the `logos.*` namespace. Each also has its own
+`@moduledoc` (`mix help logos.repl`, etc.) with the full design rationale;
+this is the quick-reference version.
+
+- **`mix logos.repl`** -- starts a local REPL: a fresh `Logos.Runtime`
+  (`logos.core` + `priv/stdlib/*.logos` already loaded) that also
+  best-effort-preloads every `*.logos` file under `lib/` before handing off
+  to `Logos.Repl.start/1`.
+
+  ```sh
+  mix logos.repl
+  ```
+
+- **`mix logos.run`** -- runs a Logos script file or an inline expression
+  against a fresh Runtime, exiting `0` on success and `1` on error (printed
+  to stderr) or an unreadable path. Extra arguments are exposed to the
+  script as `(system-argv)`.
+
+  ```sh
+  mix logos.run path/to/script.logos [arg1 arg2 ...]
+  mix logos.run -e "(+ 1 2)" [arg1 arg2 ...]
+  ```
+
+- **`mix logos.format`** -- formats Logos source files in place, or (with
+  `--check-formatted`) checks that they're already formatted without
+  writing anything, exiting nonzero and listing offenders otherwise --
+  mirrors `mix format --check-formatted`'s contract. Each argument is
+  expanded as a glob.
+
+  ```sh
+  mix logos.format path/to/file.logos path/to/other.logos
+  mix logos.format "lib/**/*.logos"
+  mix logos.format --check-formatted "lib/**/*.logos"
+  ```
+
+- **`mix logos.remsh`** -- attaches an interactive REPL to a running,
+  distributed Logos node, mirroring `iex --remsh`. The target application
+  must already be running as a distributed node with a `Logos.Runtime`
+  registered via `Logos.Runtime.Registry`; every form is shipped there via
+  `:rpc.call` and evaluated remotely.
+
+  ```sh
+  mix logos.remsh --sname my-remsh --cookie secret --target host@node --runtime my-runtime
+  ```
+
+- **`mix logos.gen_docs`** -- regenerates the checked-in
+  `guides/language/stdlib/*.md` reference pages from
+  `Logos.StdlibDocs.documents/0`. Run it whenever a stdlib docstring or
+  `@examples` entry changes; `mix test` fails if the checked-in files have
+  drifted from what it currently produces. Never hand-edit those files
+  directly.
+
+  ```sh
+  MIX_ENV=dev mix logos.gen_docs
+  ```
+
+See [guides/CHEATSHEET.md](guides/CHEATSHEET.md) for a condensed table of
+these and other common commands.
+
 ## Why embed a Lisp in Elixir?
 
 BEAM applications sometimes want to let *data*, not just code shipped at

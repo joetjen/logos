@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **"Mix tasks" section in README.md**, as the first section -- a
+  quick-reference for all five `logos.*` Mix tasks (`logos.repl`,
+  `logos.run`, `logos.format`, `logos.remsh`, `logos.gen_docs`) with usage
+  examples, alongside the existing per-task `@moduledoc`s and
+  `guides/CHEATSHEET.md` table.
+
 ## [0.2.0] - 2026-08-04
 
 ### Changed
